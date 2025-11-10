@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>データ管理</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Hiragino Sans", "Noto Sans CJK JP", "Yu Gothic", sans-serif; margin: 0; padding: 2em; background-color: #f4f5f7; }
+        .container { max-width: 900px; margin: auto; background-color: #fff; padding: 2em; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        h1, h2 { color: #172b4d; }
+        h1 { text-align: center; }
+        .nav { margin-bottom: 2em; padding-bottom: 1em; border-bottom: 1px solid #dfe1e6; }
+        .nav a { text-decoration: none; color: #0052cc; font-weight: bold; }
+        .management-section { margin-bottom: 2.5em; }
+        .input-group { margin-bottom: 1em; display: flex; flex-direction: column; gap: 10px; }
+        .input-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+        input[type="text"], input[type="number"], select { padding: 10px; border: 1px solid #ccc; border-radius: 4px; font-size: 1em; box-sizing: border-box; flex-grow: 1; }
+        button { padding: 10px 15px; border: none; border-radius: 4px; background-color: #0052cc; color: white; cursor: pointer; font-size: 1em; }
+        button:hover { background-color: #0065ff; }
+        button.delete-btn { background-color: #de350b; font-size: 0.9em; padding: 6px 10px; }
+        button.delete-btn:hover { background-color: #bf2600; }
+        .button-like-label { display: inline-block; padding: 10px 15px; border-radius: 4px; background-color: #5e6c84; color: white; cursor: pointer; font-size: 1em; }
+        ul { list-style: none; padding-left: 0; }
+        li { background-color: #fafbfc; padding: 12px; border: 1px solid #dfe1e6; border-radius: 4px; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; }
+        li .info-block { display: flex; flex-direction: column; }
+        .info-text { font-size: 0.9em; color: #555; }
+        .checkbox-label { display: flex; align-items: center; gap: 5px; }
+
+        @media screen and (max-width: 768px) {
+            body { padding: 0; }
+            .container { padding: 1em; border-radius: 0; box-shadow: none; }
+            h1 { font-size: 1.5em; }
+            h2 { font-size: 1.2em; }
+            .input-row { flex-direction: column; align-items: stretch; }
+            li { flex-direction: column; align-items: flex-start; }
+            li button.delete-btn { margin-left: auto; }
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <nav class="nav"><a href="./index.html">← 計算ツールに戻る</a></nav>
+    <h1>データ管理</h1>
+
+    <!-- 得意先 管理 -->
+    <section class="management-section">
+        <h2>得意先 管理</h2>
+        <div class="input-group">
+            <div class="input-row">
+                <input type="text" id="new-customer-name" placeholder="新しい得意先名">
+            </div>
+            <div class="input-row">
+                <label class="checkbox-label"><input type="checkbox" id="new-customer-taxable">消費税を計算</label>
+                <label class="checkbox-label"><input type="checkbox" id="new-customer-slip">統一伝票を使用</label>
+            </div>
+            <div class="input-row">
+                <input type="text" id="new-customer-code" placeholder="社名コード (統一伝票使用時)">
+            </div>
+            <div class="input-row">
+                <button id="add-customer">追加</button>
+            </div>
+        </div>
+        <ul id="customer-list"></ul>
+    </section>
+
+    <!-- 商品 管理 -->
+    <section class="management-section">
+        <h2>商品 管理</h2>
+        <div class="input-group">
+            <div class="input-row"><input type="text" id="new-product-name" placeholder="新しい商品名"></div>
+            <div class="input-row"><button id="add-product">追加</button></div>
+        </div>
+        <ul id="product-list"></ul>
+    </section>
+
+    <!-- 価格設定 -->
+    <section class="management-section">
+        <h2>得意先別 価格設定</h2>
+        <div class="input-group">
+            <div class="input-row">
+                <select id="price-customer-select"></select>
+                <select id="price-product-select"></select>
+            </div>
+            <div class="input-row">
+                <input type="number" id="new-price" placeholder="単価" min="0">
+                <button id="set-price">設定 / 更新</button>
+            </div>
+        </div>
+        <ul id="price-list"></ul>
+    </section>
+</div>
+
+<script src="./storage.js"></script>
+<script>
+    const elements = {
+        customer: {
+            nameInput: document.getElementById('new-customer-name'),
+            taxableCheckbox: document.getElementById('new-customer-taxable'),
+            slipCheckbox: document.getElementById('new-customer-slip'),
+            codeInput: document.getElementById('new-customer-code'),
+            addBtn: document.getElementById('add-customer'),
+            list: document.getElementById('customer-list')
+        },
+        product: { nameInput: document.getElementById('new-product-name'), addBtn: document.getElementById('add-product'), list: document.getElementById('product-list') },
+        price: { customerSelect: document.getElementById('price-customer-select'), productSelect: document.getElementById('price-product-select'), priceInput: document.getElementById('new-price'), setBtn: document.getElementById('set-price'), list: document.getElementById('price-list') }
+    };
+
+    let editingCustomerId = null; // 編集中の得意先IDを保持する変数
+
+    document.addEventListener('DOMContentLoaded', () => {
+        initializeData();
+        renderAll();
+        elements.customer.addBtn.addEventListener('click', addCustomer);
+        elements.product.addBtn.addEventListener('click', addProduct);
+        elements.price.setBtn.addEventListener('click', setPrice);
+
+        // ★★★ 追加: インポート/エクスポートのイベントリスナー ★★★
+        document.getElementById('export-json').addEventListener('click', exportAllData);
+        document.getElementById('import-json-input').addEventListener('change', importFromJson);
+        document.getElementById('import-customers-csv').addEventListener('change', importCustomersFromCsv);
+        document.getElementById('import-products-csv').addEventListener('change', importProductsFromCsv);
+
+    });
+
+    // ★★★ 変更点: 統一伝票チェックボックスの連動 ★★★
+    elements.customer.slipCheckbox.addEventListener('change', () => {
+        // 「統一伝票を使用」がチェックされているときだけ社名コード入力欄を表示
+        elements.customer.codeInput.style.display = elements.customer.slipCheckbox.checked ? 'block' : 'none';
+    });
+
+
+    function renderAll() { renderCustomers(); renderProducts(); renderPrices(); }
+    function renderCustomers() {
+        const customers = getCustomers();
+        elements.customer.list.innerHTML = '';
+        elements.price.customerSelect.innerHTML = '<option value="">得意先を選択</option>';
+        customers.forEach(c => {
+            const li = document.createElement('li');
+            const taxStatus = c.taxable ? '消費税: あり' : '消費税: なし';
+            const slipStatus = c.useUnifiedSlip ? `統一伝票: あり (コード: ${c.companyCode || '未設定'})` : '統一伝票: なし';
+            li.innerHTML = `
+                <div class="info-block">
+                    <span>${c.name}</span>
+                    <span class="info-text">${taxStatus}</span>
+                    <span class="info-text">${slipStatus}</span>
+                </div>
+                <div>
+                    ${createEditButton(() => editCustomer(c))}
+                </div>`;
+            li.appendChild(createDeleteButton(() => deleteCustomer(c.id)));
+            elements.customer.list.appendChild(li);
+            elements.price.customerSelect.appendChild(new Option(c.name, c.id));
+        });
+    }
+    function addCustomer() {
+        const name = elements.customer.nameInput.value.trim();
+        const isTaxable = elements.customer.taxableCheckbox.checked;
+        const useSlip = elements.customer.slipCheckbox.checked;
+        const code = elements.customer.codeInput.value.trim();
+
+        if (!name) return alert('得意先名を入力してください。');
+
+        let customers = getCustomers();
+
+        if (editingCustomerId) { // ★★★ 変更点: 編集モードの場合
+            const customer = customers.find(c => c.id === editingCustomerId);
+            if (customer) {
+                customer.name = name;
+                customer.taxable = isTaxable;
+                customer.useUnifiedSlip = useSlip;
+                customer.companyCode = code;
+            }
+        } else { // 新規追加の場合
+            customers.push({ id: `c${Date.now()}`, name, taxable: isTaxable, useUnifiedSlip: useSlip, companyCode: code });
+        }
+        saveCustomers(customers);
+        resetCustomerForm();
+        renderAll();
+    }
+    function deleteCustomer(id) {
+        if (!confirm('この得意先を削除しますか？\n関連する価格設定もすべて削除されます。')) return;
+        saveCustomers(getCustomers().filter(c => c.id !== id));
+        saveCustomerPrices(getCustomerPrices().filter(p => p.customerId !== id));
+        renderAll();
+    }
+
+    // ★★★ 追加: 得意先編集機能 ★★★
+    function editCustomer(customer) {
+        editingCustomerId = customer.id;
+        elements.customer.nameInput.value = customer.name;
+        elements.customer.taxableCheckbox.checked = customer.taxable;
+        elements.customer.slipCheckbox.checked = customer.useUnifiedSlip;
+        elements.customer.codeInput.value = customer.companyCode || '';
+        elements.customer.codeInput.style.display = customer.useUnifiedSlip ? 'block' : 'none';
+
+        elements.customer.addBtn.textContent = '更新';
+        
+        // キャンセルボタンがなければ作成
+        if (!document.getElementById('cancel-edit-btn')) {
+            const cancelBtn = document.createElement('button');
+            cancelBtn.textContent = 'キャンセル';
+            cancelBtn.id = 'cancel-edit-btn';
+            cancelBtn.style.backgroundColor = '#6c757d';
+            cancelBtn.addEventListener('click', resetCustomerForm);
+            elements.customer.addBtn.parentElement.appendChild(cancelBtn);
+        }
+    }
+
+    // ★★★ 追加: 得意先入力フォームをリセットする関数 ★★★
+    function resetCustomerForm() {
+        editingCustomerId = null;
+        elements.customer.nameInput.value = '';
+        elements.customer.taxableCheckbox.checked = false;
+        elements.customer.slipCheckbox.checked = false;
+        elements.customer.codeInput.value = '';
+        elements.customer.codeInput.style.display = 'none';
+        elements.customer.addBtn.textContent = '追加';
+        document.getElementById('cancel-edit-btn')?.remove();
+    }
+
+    function renderProducts() {
+        const products = getProducts();
+        elements.product.list.innerHTML = '';
+        elements.price.productSelect.innerHTML = '<option value="">商品を選択</option>';
+        products.forEach(p => {
+            const li = document.createElement('li');
+            li.innerHTML = `<span>${p.name}</span>`;
+            li.appendChild(createDeleteButton(() => deleteProduct(p.id)));
+            elements.product.list.appendChild(li);
+            elements.price.productSelect.appendChild(new Option(p.name, p.id));
+        });
+    }
+    function addProduct() {
+        const name = elements.product.nameInput.value.trim();
+        if (!name) return alert('商品名を入力してください。');
+        const products = getProducts();
+        products.push({ id: `p${Date.now()}`, name });
+        saveProducts(products);
+        elements.product.nameInput.value = '';
+        renderAll();
+    }
+    function deleteProduct(id) {
+        if (!confirm('この商品を削除しますか？\n関連する価格設定もすべて削除されます。')) return;
+        saveProducts(getProducts().filter(p => p.id !== id));
+        saveCustomerPrices(getCustomerPrices().filter(p => p.productId !== id));
+        renderAll();
+    }
+    function renderPrices() {
+        const prices = getCustomerPrices(), customers = getCustomers(), products = getProducts();
+        elements.price.list.innerHTML = '';
+        prices.forEach(p => {
+            const customer = customers.find(c => c.id === p.customerId);
+            const product = products.find(prod => prod.id === p.productId);
+            if (!customer || !product) return;
+            const li = document.createElement('li');
+            li.innerHTML = `<span><strong>${customer.name}</strong> - ${product.name}: ${p.price.toLocaleString()}円</span>`;
+            li.appendChild(createDeleteButton(() => deletePrice(p.customerId, p.productId)));
+            elements.price.list.appendChild(li);
+        });
+    }
+    function setPrice() {
+        const customerId = elements.price.customerSelect.value, productId = elements.price.productSelect.value, price = parseFloat(elements.price.priceInput.value);
+        if (!customerId || !productId || isNaN(price)) return alert('得意先、商品、単価をすべて正しく入力してください。');
+        let prices = getCustomerPrices();
+        const existingIndex = prices.findIndex(p => p.customerId === customerId && p.productId === productId);
+        if (existingIndex > -1) { prices[existingIndex].price = price; } else { prices.push({ customerId, productId, price }); }
+        saveCustomerPrices(prices);
+        elements.price.priceInput.value = '';
+        renderAll();
+    }
+    function deletePrice(customerId, productId) {
+        if (!confirm('この価格設定を削除しますか？')) return;
+        saveCustomerPrices(getCustomerPrices().filter(p => !(p.customerId === customerId && p.productId === productId)));
+        renderAll();
+    }
+    function createDeleteButton(onClick) {
+        const btn = document.createElement('button');
+        btn.textContent = '削除';
+        btn.className = 'delete-btn';
+        btn.onclick = onClick;
+        return btn;
+    }
+
+    // ★★★ 追加: 編集ボタンを作成する関数 ★★★
+    function createEditButton(onClick) {
+        const btn = document.createElement('button');
+        btn.textContent = '編集';
+        btn.style.marginRight = '8px'; // 削除ボタンとの間に余白
+        btn.onclick = onClick;
+        return btn;
+    }
+
+    // ★★★ 追加: データ連携機能 ★★★
+    function exportAllData() {
+        const data = {
+            customers: getCustomers(),
+            products: getProducts(),
+            prices: getCustomerPrices()
+        };
+        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `backup-${new Date().toISOString().slice(0, 10)}.json`;
+        a.click();
+        URL.revokeObjectURL(url);
+        alert('全データをエクスポートしました。');
+    }
+
+    function importFromJson(event) {
+        if (!confirm('バックアップファイルからデータを復元します。\n現在のデータはすべて上書きされます。よろしいですか？')) return;
+        const file = event.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            try {
+                const data = JSON.parse(e.target.result);
+                if (data.customers && data.products && data.prices) {
+                    saveCustomers(data.customers);
+                    saveProducts(data.products);
+                    saveCustomerPrices(data.prices);
+                    renderAll();
+                    alert('データのインポートが完了しました。');
+                } else {
+                    alert('ファイルの形式が正しくありません。');
+                }
+            } catch (error) {
+                alert('ファイルの読み込みに失敗しました。');
+            }
+        };
+        reader.readAsText(file);
+        event.target.value = ''; // 同じファイルを再度選択できるようにリセット
+    }
+
+    function importCustomersFromCsv(event) {
+        if (!confirm('CSVファイルから得意先データをインポートします。\n既存の得意先と価格設定はすべて削除されます。よろしいですか？')) return;
+        const file = event.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            try {
+                const lines = e.target.result.split(/\r\n|\n/).slice(1); // ヘッダー行を除外
+                const newCustomers = lines.filter(line => line.trim() !== '').map(line => {
+                    const [name, taxable, useSlip, code] = line.split(',');
+                    return {
+                        id: `c${Date.now()}-${Math.random()}`,
+                        name: name.trim(),
+                        taxable: ['true', '1', 'あり', 'はい'].includes(taxable?.trim().toLowerCase()),
+                        useUnifiedSlip: ['true', '1', 'あり', 'はい'].includes(useSlip?.trim().toLowerCase()),
+                        companyCode: code?.trim() || ''
+                    };
+                });
+                saveCustomers(newCustomers);
+                saveCustomerPrices([]); // 得意先が入れ替わるので価格設定はリセット
+                renderAll();
+                alert('得意先データのインポートが完了しました。');
+            } catch (error) {
+                alert('CSVファイルの処理中にエラーが発生しました。');
+            }
+        };
+        reader.readAsText(file, 'UTF-8');
+        event.target.value = '';
+    }
+
+    function importProductsFromCsv(event) {
+        if (!confirm('CSVファイルから商品データをインポートします。\n既存の商品と価格設定はすべて削除されます。よろしいですか？')) return;
+        const file = event.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            const lines = e.target.result.split(/\r\n|\n/).slice(1); // ヘッダー行を除外
+            const newProducts = lines.filter(line => line.trim() !== '').map(line => ({ id: `p${Date.now()}-${Math.random()}`, name: line.trim() }));
+            saveProducts(newProducts);
+            saveCustomerPrices([]); // 商品が入れ替わるので価格設定はリセット
+            renderAll();
+            alert('商品データのインポートが完了しました。');
+        };
+        reader.readAsText(file, 'UTF-8');
+        event.target.value = '';
+    }
+</script>
+
+</body>
+</html>

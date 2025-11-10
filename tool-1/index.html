@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>納品金額計算ツール</title>
+    
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Hiragino Sans", "Noto Sans CJK JP", "Yu Gothic", sans-serif; margin: 0; padding: 2em; background-color: #f9f9f9; color: #333; }
+        .container { max-width: 800px; margin: auto; background-color: #fff; padding: 2em; border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.1); }
+        h1, h2 { color: #1a237e; border-bottom: 2px solid #c5cae9; padding-bottom: 0.3em; }
+        h1 { text-align: center; margin-bottom: 1.5em; font-size: 1.8em; }
+        input[type="text"], input[type="number"] { padding: 10px; border-radius: 4px; border: 1px solid #ccc; font-size: 1em; box-sizing: border-box; }
+        .table-wrapper { margin-top: 1.5em; }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { border: 1px solid #ddd; padding: 10px 8px; text-align: left; vertical-align: middle; }
+        th { background-color: #e8eaf6; }
+        .text-right { text-align: right; }
+        .quantity-input { width: 70px; text-align: right; }
+        .col-product { width: auto; }
+        .col-quantity { width: 85px; }
+        .col-price { width: 110px; }
+        .col-subtotal { width: 120px; }
+        #admin-button { display: block; width: 100%; max-width: 300px; margin: 2em auto 0; padding: 12px 20px; background-color: #43a047; color: white; border: none; border-radius: 5px; cursor: pointer; font-size: 1.1em; }
+        #admin-button:hover { background-color: #388e3c; }
+        .search-container { position: relative; width: 100%; max-width: 400px; }
+        #customer-search-input { width: 100%; }
+        #customer-search-results { display: none; position: absolute; top: 100%; left: 0; right: 0; border: 1px solid #ddd; background-color: white; z-index: 10; max-height: 200px; overflow-y: auto; border-radius: 0 0 4px 4px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        .result-item { padding: 10px; cursor: pointer; }
+        .result-item:hover { background-color: #e8eaf6; }
+        .result-item:not(:last-child) { border-bottom: 1px solid #eee; }
+        .total-grid { margin-top: 1.5em; display: grid; grid-template-columns: 1fr auto; gap: 8px 20px; max-width: 400px; margin-left: auto; text-align: right; font-size: 1.1em; }
+        .total-grid .label { font-weight: bold; }
+        .total-grid .amount { font-weight: bold; }
+        .total-grid .grand-total { grid-column: 1 / -1; margin-top: 10px; padding-top: 10px; border-top: 2px solid #ccc; font-size: 1.3em; color: #d32f2f; }
+        
+        /* ★★★ 変更点: 得意先追加情報エリアのスタイル ★★★ */
+        #customer-info-display {
+            display: none; /* 初期状態は非表示 */
+            background-color: #f0f4f8;
+            border: 1px solid #c5cae9;
+            border-radius: 4px;
+            padding: 10px;
+            margin-top: 10px;
+            font-size: 0.9em;
+        }
+        #customer-info-display span {
+            font-weight: bold;
+            margin-left: 8px;
+        }
+
+        @media screen and (max-width: 768px) {
+            body { padding: 1em; }
+            .container { padding: 1em; border-radius: 0; box-shadow: none; }
+            h1 { font-size: 1.5em; }
+            h2 { font-size: 1.2em; }
+            .table-wrapper { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+            table { white-space: nowrap; }
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>納品金額計算ツール</h1>
+    <section>
+        <h2>1. 得意先を検索</h2>
+        <div class="search-container">
+            <input type="text" id="customer-search-input" placeholder="得意先名を入力...">
+            <div id="customer-search-results"></div>
+        </div>
+        <!-- ★★★ 変更点: 得意先追加情報エリアを追加 ★★★ -->
+        <div id="customer-info-display">
+            社名コード: <span id="company-code-display"></span>
+        </div>
+    </section>
+    <section id="products-section" style="display:none;">
+        <h2>2. 数量を入力</h2>
+        <div class="table-wrapper">
+            <table>
+                <thead>
+                    <tr>
+                        <th class="col-product">商品名</th>
+                        <th class="col-quantity text-right">数量</th>
+                        <th class="col-price text-right">単価</th>
+                        <th class="col-subtotal text-right">小計</th>
+                    </tr>
+                </thead>
+                <tbody id="products-tbody"></tbody>
+            </table>
+        </div>
+    </section>
+    <section id="total-section" style="display:none;">
+        <div class="total-grid">
+            <div class="label">小計</div>
+            <div class="amount"><span id="subtotal-amount">0</span> 円</div>
+            <div class="label" id="tax-label" style="display: none;">消費税 (10%)</div>
+            <div class="amount" id="tax-amount-container" style="display: none;"><span id="tax-amount">0</span> 円</div>
+            <div class="label grand-total">合計金額</div>
+            <div class="amount grand-total"><span id="total-amount">0</span> 円</div>
+        </div>
+    </section>
+    <button id="admin-button">得意先・商品のデータを編集する</button>
+</div>
+
+<script src="./storage.js"></script>
+<script>
+    const searchInput = document.getElementById('customer-search-input');
+    const searchResults = document.getElementById('customer-search-results');
+    const customerInfoDisplay = document.getElementById('customer-info-display');
+    const companyCodeDisplay = document.getElementById('company-code-display');
+    const productsSection = document.getElementById('products-section');
+    const productsTbody = document.getElementById('products-tbody');
+    const totalSection = document.getElementById('total-section');
+    const subtotalAmountSpan = document.getElementById('subtotal-amount');
+    const taxLabel = document.getElementById('tax-label');
+    const taxAmountContainer = document.getElementById('tax-amount-container');
+    const taxAmountSpan = document.getElementById('tax-amount');
+    const totalAmountSpan = document.getElementById('total-amount');
+    const adminButton = document.getElementById('admin-button');
+
+    let customers = [];
+    let currentCustomer = null;
+    const TAX_RATE = 0.10;
+
+    document.addEventListener('DOMContentLoaded', () => {
+        initializeData();
+        customers = getCustomers();
+    });
+
+    searchInput.addEventListener('input', () => {
+        const query = searchInput.value.trim().toLowerCase();
+        if (query === '') { clearSelection(); return; }
+        const filteredCustomers = customers.filter(customer => customer.name.toLowerCase().includes(query));
+        displaySearchResults(filteredCustomers);
+    });
+    
+    searchInput.addEventListener('focus', () => {
+        if (searchInput.value.trim() !== '') { searchInput.dispatchEvent(new Event('input')); }
+    });
+
+    document.addEventListener('click', (event) => {
+        if (!event.target.closest('.search-container')) { searchResults.style.display = 'none'; }
+    });
+
+    adminButton.addEventListener('click', () => { window.open('./admin.html', '_blank'); });
+
+    function displaySearchResults(results) {
+        searchResults.innerHTML = '';
+        if (results.length > 0) {
+            results.forEach(customer => {
+                const item = document.createElement('div');
+                item.className = 'result-item';
+                item.textContent = customer.name;
+                item.dataset.id = customer.id;
+                item.addEventListener('click', () => {
+                    currentCustomer = customers.find(c => c.id === item.dataset.id);
+                    searchInput.value = currentCustomer.name;
+                    searchResults.style.display = 'none';
+                    updateCustomerInfoDisplay(); // ★★★ 追加: 得意先情報表示を更新
+                    loadProducts(currentCustomer.id);
+                    productsSection.style.display = 'block';
+                    totalSection.style.display = 'block';
+                });
+                searchResults.appendChild(item);
+            });
+            searchResults.style.display = 'block';
+        } else {
+            searchResults.style.display = 'none';
+        }
+    }
+    
+    function clearSelection() {
+        currentCustomer = null;
+        searchResults.style.display = 'none';
+        productsTbody.innerHTML = '';
+        productsSection.style.display = 'none';
+        totalSection.style.display = 'none';
+        updateCustomerInfoDisplay(); // ★★★ 追加: 得意先情報表示をクリア
+        calculateTotal();
+    }
+
+    // ★★★ 追加: 得意先追加情報を表示/非表示する関数 ★★★
+    function updateCustomerInfoDisplay() {
+        if (currentCustomer && currentCustomer.useUnifiedSlip) {
+            companyCodeDisplay.textContent = currentCustomer.companyCode || '未設定';
+            customerInfoDisplay.style.display = 'block';
+        } else {
+            customerInfoDisplay.style.display = 'none';
+        }
+    }
+
+    function loadProducts(customerId) {
+        productsTbody.innerHTML = '';
+        const products = getProducts();
+        const prices = getCustomerPrices();
+        const customerPrices = prices.filter(p => p.customerId === customerId);
+        if (customerPrices.length === 0) {
+            productsTbody.innerHTML = '<tr><td colspan="4">この得意先に紐づく商品がありません。</td></tr>';
+            calculateTotal();
+            return;
+        }
+        customerPrices.forEach(priceInfo => {
+            const product = products.find(p => p.id === priceInfo.productId);
+            if (!product) return;
+            const row = productsTbody.insertRow();
+            row.innerHTML = `
+                <td>${product.name}</td>
+                <td><input type="number" class="quantity-input" min="0" value="0" data-price="${priceInfo.price}"></td>
+                <td class="text-right price">${priceInfo.price.toLocaleString()}</td>
+                <td class="text-right subtotal">0</td>
+            `;
+        });
+        productsTbody.querySelectorAll('.quantity-input').forEach(input => {
+            input.addEventListener('input', handleQuantityChange);
+        });
+        calculateTotal();
+    }
+    
+    function handleQuantityChange(event) {
+        const input = event.target;
+        const price = parseFloat(input.dataset.price);
+        const quantity = parseFloat(input.value) || 0;
+        const subtotal = price * quantity;
+        const subtotalCell = input.closest('tr').querySelector('.subtotal');
+        subtotalCell.textContent = subtotal.toLocaleString();
+        calculateTotal();
+    }
+
+    function calculateTotal() {
+        let subtotal = 0;
+        productsTbody.querySelectorAll('.subtotal').forEach(cell => {
+            subtotal += parseFloat(cell.textContent.replace(/,/g, '')) || 0;
+        });
+        subtotalAmountSpan.textContent = subtotal.toLocaleString();
+        if (currentCustomer && currentCustomer.taxable) {
+            const tax = Math.floor(subtotal * TAX_RATE);
+            const total = subtotal + tax;
+            taxAmountSpan.textContent = tax.toLocaleString();
+            totalAmountSpan.textContent = total.toLocaleString();
+            taxLabel.style.display = 'block';
+            taxAmountContainer.style.display = 'block';
+        } else {
+            totalAmountSpan.textContent = subtotal.toLocaleString();
+            taxLabel.style.display = 'none';
+            taxAmountContainer.style.display = 'none';
+        }
+    }
+</script>
+
+</body>
+</html>
