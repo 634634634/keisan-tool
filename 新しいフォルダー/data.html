@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>データ管理</title>
+    <link rel="stylesheet" href="style.css">
+    <!-- SheetJSライブラリを読み込む -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>データ管理</h1>
+            <nav>
+                <a href="index.html">計算ページへ</a>
+                <a href="list.html">保存済み一覧へ</a>
+            </nav>
+        </header>
+        
+        <div class="card">
+            <h2>得意先・商品データインポート</h2>
+            <p>以下の形式のExcelファイルを選択してください。<br>(列: 得意先名, 商品名, 単価, 原価, 税表示, 伝票行数, 原価表示, 税計算)</p>
+            <p>※「税表示」「原価表示」の列は、表示する場合は「有」と入力してください。空白や他の文字の場合は非表示になります。</p>
+            <p>※「税計算」の列は、「切り捨て」「切り上げ」と入力できます。空白や他の文字の場合は「四捨五入」になります。</p>
+            <input type="file" id="excel-file" accept=".xlsx, .xls">
+            <button onclick="importExcel()">インポート実行</button>
+            <p id="import-status" class="status-message"></p>
+        </div>
+
+        <!-- 「現在登録されているデータ」の表示を非表示にしました -->
+    </div>
+
+    <script>
+        // [変更] データをブラウザに保存するためのキー
+        const PRODUCT_DATA_KEY = 'productMasterData';
+        const CUSTOMER_SETTINGS_KEY = 'customerSettingsData';
+
+        // Excelファイルを読み込み、データを処理する関数
+        function importExcel() {
+            const fileInput = document.getElementById('excel-file');
+            const statusEl = document.getElementById('import-status');
+
+            if (fileInput.files.length === 0) {
+                statusEl.textContent = 'ファイルが選択されていません。';
+                statusEl.style.color = 'red';
+                return;
+            }
+
+            const file = fileInput.files[0];
+            const reader = new FileReader();
+
+            reader.onload = function(event) {
+                try {
+                    const data = new Uint8Array(event.target.result);
+                    const workbook = XLSX.read(data, { type: 'array' });
+
+                    // --- [変更] 最初のシートのみを読み込む ---
+                    const sheetName = workbook.SheetNames[0];
+                    const worksheet = workbook.Sheets[sheetName];
+                    const jsonData = XLSX.utils.sheet_to_json(worksheet);
+
+                    const productData = {};
+                    const customerSettings = {};
+
+                    jsonData.forEach(row => {
+                        const customer = row.得意先名;
+                        if (!customer) return;
+
+                        // --- 商品データを格納 ---
+                        if (!productData[customer]) {
+                            productData[customer] = [];
+                        }
+                        productData[customer].push({
+                            name: row.商品名,
+                            price: row.単価,
+                            cost: row.原価 || 0 // 原価がなければ0
+                        });
+
+                        // --- 得意先設定を格納（各得意先で最初の1回だけ） ---
+                        if (!customerSettings[customer]) {
+                            customerSettings[customer] = {
+                                show_tax: row.税表示 === '有', // [修正] デフォルトを四捨五入に変更
+                                group_size: parseInt(row.伝票行数, 10) || 6,
+                                show_cost: row.原価表示 === '有',
+                                tax_method: (() => {
+                                    if (row.税計算 === '切り捨て') {
+                                        return 'floor';
+                                    }
+                                    if (row.税計算 === '切り上げ') {
+                                        return 'ceil';
+                                    }
+                                    return 'round'; // デフォルトは四捨五入
+                                })()
+                            };
+                        }
+                    });
+
+                    // 整形した両方のデータをLocalStorageに保存
+                    localStorage.setItem(PRODUCT_DATA_KEY, JSON.stringify(productData));
+                    localStorage.setItem(CUSTOMER_SETTINGS_KEY, JSON.stringify(customerSettings));
+                    
+                    statusEl.textContent = `インポートが完了しました。(${jsonData.length}件)`;
+                    statusEl.style.color = 'green';
+                    displayCurrentData(); // 画面の表示を更新
+                } catch (e) {
+                    console.error(e);
+                    statusEl.textContent = 'ファイルの読み込みに失敗しました。形式を確認してください。';
+                }
+            };
+            reader.readAsArrayBuffer(file);
+        }
+
+        // 現在のデータを表示する関数
+        function displayCurrentData() {
+            const productData = localStorage.getItem(PRODUCT_DATA_KEY);
+            // 表示エリアを削除したため、この関数はコンソールにログを出力するだけにします
+            console.log('Product Data:', productData ? JSON.parse(productData) : 'No data');
+        }
+
+        // データを全削除する関数
+        function clearData() {
+            if (confirm('本当にすべてのマスターデータを削除しますか？')) {
+                // [変更] 両方のデータを削除
+                localStorage.removeItem(PRODUCT_DATA_KEY);
+                localStorage.removeItem(CUSTOMER_SETTINGS_KEY);
+                displayCurrentData();
+                document.getElementById('import-status').textContent = 'データを削除しました。';
+            }
+        }
+
+        // ページ読み込み時に現在のデータを表示
+        document.addEventListener('DOMContentLoaded', displayCurrentData);
+    </script>
+</body>
+</html>
