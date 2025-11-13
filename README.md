@@ -1,2 +1,0 @@
-# keisan-tool
-dempyo
