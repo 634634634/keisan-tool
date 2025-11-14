@@ -298,3 +298,44 @@ pre {
     word-wrap: break-word;
     color: #212529;
 }
+
+/* --- [追加] スマートフォン表示への最適化 (レスポンシブ対応) --- */
+@media (max-width: 768px) {
+    /* 全体の余白を調整 */
+    body {
+        padding: 0.5rem;
+    }
+
+    /* カードの左右の余白を小さくする */
+    .card {
+        padding: 1rem 1.2rem;
+    }
+
+    /* ヘッダーのレイアウトを縦並びにする */
+    header {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+    header nav {
+        margin-top: 1rem;
+    }
+    header nav a:first-child {
+        margin-left: 0;
+    }
+
+    /* テーブルの列幅固定を解除し、自動調整させる */
+    .col-qty, .show-cost .col-qty,
+    .col-price, .show-cost .col-price,
+    .col-subtotal, .show-cost .col-subtotal,
+    .col-cost-price, .show-cost .col-cost-price,
+    .col-cost-subtotal, .show-cost .col-cost-subtotal {
+        width: auto;
+    }
+
+    /* テーブル内の文字と余白を少し小さくする */
+    #product-table th, #product-table td,
+    #summary-table th, #summary-table td {
+        font-size: 0.95rem;
+        padding: 0.6rem 0.5rem;
+    }
+}
