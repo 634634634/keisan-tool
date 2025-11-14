@@ -157,7 +157,7 @@ button:hover {
     width: 100%;
     border-collapse: collapse;
     margin-top: 1rem;
-    table-layout: fixed; /* [追加] 列幅を固定するために必要 */
+    table-layout: auto; /* [変更] 内容に応じて幅を自動調整させる */
 }
 
 #product-table th, #product-table td,
@@ -323,13 +323,21 @@ pre {
         margin-left: 0;
     }
 
-    /* テーブルの列幅固定を解除し、自動調整させる */
-    .col-qty, .show-cost .col-qty,
-    .col-price, .show-cost .col-price,
-    .col-subtotal, .show-cost .col-subtotal,
-    .col-cost-price, .show-cost .col-cost-price,
-    .col-cost-subtotal, .show-cost .col-cost-subtotal {
-        width: auto;
+    /* [変更] テーブルの列幅をスマホ表示に最適化 */
+    /* 商品名が縦書きになるのを防ぐ */
+    #product-table .col-name,
+    #summary-table .col-name {
+        white-space: nowrap;
+        width: auto; /* 自動で幅を広げる */
+    }
+    /* 単価や小計の列幅を最小限にする */
+    .col-qty { width: 15%; }
+    .col-price, .col-subtotal { width: 25%; }
+
+    .show-cost .col-qty { width: 10%; }
+    .show-cost .col-price, .show-cost .col-subtotal,
+    .show-cost .col-cost-price, .show-cost .col-cost-subtotal {
+        width: 18%;
     }
 
     /* テーブル内の文字と余白を少し小さくする */
