@@ -51,23 +51,25 @@
             }
         }
 
-        document.addEventListener('DOMContentLoaded', async () => {
+        // CSVデータから重複しない得意先リストを生成する関数
+        function createCustomerList(masterData) {
+            if (!masterData || masterData.length === 0) return [];
+            
+            const customers = masterData.reduce((acc, row) => {
+                if (!acc.some(c => c.id === row.customerId)) {
+                    acc.push({ id: row.customerId, name: row.customerName });
+                }
+                return acc;
+            }, []);
+            return customers;
+        }
+
+        // 得意先リストをHTMLに描画する関数
+        function renderCustomerList(customers) {
             const customerListEl = document.getElementById('customerList');
-            
-            // マスターデータを取得
-            const masterData = await fetchCsvAsJson(MASTER_DATA_URL);
-            
-            customerListEl.innerHTML = ''; // 「読み込み中」をクリア
+            customerListEl.innerHTML = ''; // リストをクリア
 
-            if (masterData.length > 0) {
-                // マスターデータから重複しない得意先リストを作成
-                const customers = masterData.reduce((acc, row) => {
-                    if (!acc.some(c => c.id === row.customerId)) {
-                        acc.push({ id: row.customerId, name: row.customerName });
-                    }
-                    return acc;
-                }, []);
-
+            if (customers.length > 0) {
                 customers.forEach(customer => {
                     const listItem = document.createElement('li');
                     const link = document.createElement('a');
@@ -77,8 +79,14 @@
                     customerListEl.appendChild(listItem);
                 });
             } else {
-                customerListEl.innerHTML = '<li>データの読み込みに失敗しました。</li>';
+                customerListEl.innerHTML = '<li>表示できる得意先がありません。</li>';
             }
+        }
+
+        document.addEventListener('DOMContentLoaded', async () => {
+            const masterData = await fetchCsvAsJson(MASTER_DATA_URL);
+            const customers = createCustomerList(masterData);
+            renderCustomerList(customers);
         });
         // ★★★ ここまで修正 ★★★
     </script>
