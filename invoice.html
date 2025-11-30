@@ -143,6 +143,7 @@
 
             const customerName = customerSpecificData[0].customerName;
             displayCustomerProducts(customerName, customerSpecificData);
+            generateInvoices(customerSpecificData); // ★★★ 呼び出しをここへ移動 ★★★
             customerProductsTableBody.addEventListener('input', () => generateInvoices(customerSpecificData));
 
             function displayCustomerProducts(customerName, products) {
@@ -159,7 +160,6 @@
                 } else {
                     customerProductsTableBody.innerHTML = '<tr><td colspan="4">この得意先に登録されている商品はありません。</td></tr>';
                 }
-                generateInvoices(products);
             }
 
             function generateInvoices(products) {
@@ -249,4 +249,9 @@
                     table.appendChild(tbody);
                     invoiceContainer.appendChild(table);
                 }
-   
+            }
+        });
+        // ★★★ ここまで修正 ★★★
+    </script>
+</body>
+</html>
