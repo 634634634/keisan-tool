@@ -16,22 +16,24 @@
         th { background-color: #f2f2f2; }
         input { box-sizing: border-box; width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px; font-size: 1em; text-align: right; }
         .subtotal, .total-value, .price-cell, .cost-subtotal { text-align: right; }
+        .product-name-cell { text-align: right; } /* ★★★ 商品名・品名を右揃えにするクラス ★★★ */
         #customerProductsTable .quantity-input { width: 100%; text-align: right; }
         .subtotal-row td { background-color: #f0f8ff; font-weight: bold; }
         .total-label { text-align: right; }
         .total-value { color: #333; }
         .back-link { display: inline-block; margin-bottom: 20px; color: #3498db; text-decoration: none; }
         .back-link:hover { text-decoration: underline; }
-        /* ★★★ ヘッダーを中央揃えに ★★★ */
+        /* ★★★ ヘッダーのスタイル調整 ★★★ */
         th {
             background-color: #f2f2f2;
             text-align: center;
+            font-weight: normal; /* ★★★ ヘッダーの太字を解除 ★★★ */
         }
-        .col-product-name { width: 34%; } .col-department { width: 15%; text-align: center; } .col-quantity { width: 10%; } .col-price { width: 13%; } .col-subtotal { width: 14%; } .col-cost { width: 13%; } .col-cost-subtotal { width: 14%; }
+        .col-product-name { width: 62%; } .col-quantity { width: 15%; } .col-price { width: 13%; } .col-department { width: 10%; text-align: center; } .col-subtotal { width: 14%; } .col-cost { width: 13%; } .col-cost-subtotal { width: 14%; }
 
         /* ★★★ 商品名と数字以外の文字を小さくする ★★★ */
         th, .col-department, .total-label {
-            font-size: 0.85em;
+            font-size: 0.8em; /* ★★★ フォントサイズをさらに小さく ★★★ */
         }
 
         /* ★★★ スマホ表示用の調整 ★★★ */
@@ -55,12 +57,11 @@
         <a href="index.html" class="back-link">&laquo; 得意先一覧に戻る</a>
         <h1>納品金額計算</h1>
         <div id="customerProductsContainer">
-            <h2><span id="selectedCustomerName"></span> 様の納品履歴商品</h2>
             <p>数量を入力すると、下の伝票に自動で反映されます。</p>
             <table id="customerProductsTable">
                 <thead>
                     <tr>
-                        <th class="col-product-name">商品名</th><th class="col-department">部門</th><th class="col-price">単価</th><th class="col-quantity">数量</th>
+                        <th class="col-product-name">商品名</th><th class="col-quantity">数量</th><th class="col-price">単価</th><th class="col-department">部門</th>
                     </tr>
                 </thead>
                 <tbody><tr><td colspan="4">データを読み込んでいます...</td></tr></tbody>
@@ -97,13 +98,23 @@
             }
         }
 
+        // 安全にテキストをセルに設定するヘルパー関数
+        function createCell(text, className) {
+            const cell = document.createElement('td');
+            cell.textContent = text;
+            if (className) {
+                cell.className = className;
+            }
+            return cell;
+        }
+
         document.addEventListener('DOMContentLoaded', async () => {
-            const selectedCustomerNameEl = document.getElementById('selectedCustomerName');
             const customerProductsTableBody = document.querySelector('#customerProductsTable tbody');
             const invoiceContainer = document.getElementById('invoiceContainer');
 
             const params = new URLSearchParams(window.location.search);
             const customerId = parseInt(params.get('customerId'), 10);
+            const customerNameEl = document.querySelector('h2 > strong');
 
             if (!customerId) {
                 document.querySelector('body').innerHTML = `<div class="container"><h1>エラー</h1><p>有効な得意先が選択されていません。</p><a href="customers.html">得意先一覧に戻ってください。</a></div>`;
@@ -125,7 +136,6 @@
             customerProductsTableBody.addEventListener('input', () => generateInvoices(customerSpecificData));
 
             function displayCustomerProducts(customerName, products) {
-                selectedCustomerNameEl.textContent = customerName;
                 customerProductsTableBody.innerHTML = '';
 
                 if (products.length > 0) {
@@ -133,7 +143,7 @@
                         const row = document.createElement('tr');
                         // データ属性としてproductIdだけでなく、行全体の情報を保持すると後で楽
                         row.dataset.productId = product.productId;
-                        row.innerHTML = `<td>${product.productName}</td><td class="col-department">${product.departmentName}</td><td class="price-cell">${product.price.toLocaleString()}</td><td><input type="number" class="quantity-input" min="0" placeholder="0"></td>`;
+                        row.innerHTML = `<td class="product-name-cell">${product.productName}</td><td><input type="number" class="quantity-input" min="0" placeholder="0"></td><td class="price-cell">${product.price.toLocaleString()}</td><td class="col-department">${product.departmentName}</td>`;
                         customerProductsTableBody.appendChild(row);
                     });
                 } else {
@@ -183,31 +193,44 @@
                     departmentHeader.textContent = dept.name;
                     invoiceContainer.appendChild(departmentHeader);
                     const table = document.createElement('table');
-                    table.innerHTML = `<thead><tr><th class="col-product-name">品名</th><th class="col-quantity">数量</th><th class="col-price">売単価</th><th class="col-subtotal">売価金額</th><th class="col-cost">原単価</th><th class="col-cost-subtotal">原価金額</th></tr></thead>`;
+                    table.innerHTML = `<thead><tr><th class="col-product-name">品名</th><th class="col-quantity">数量</th><th class="col-price">原単価</th><th class="col-subtotal">原価金額</th><th class="col-cost">売単価</th><th class="col-cost-subtotal">売価金額</th></tr></thead>`;
                     const tbody = document.createElement('tbody');
                     let itemCounter = 0;
                     let runningSubtotal = 0;
                     let runningCostSubtotal = 0;
+
                     dept.items.forEach((item, index) => {
                         itemCounter++;
                         const itemSubtotal = item.quantity * item.price;
                         const costSubtotal = item.quantity * (item.cost || 0);
                         runningSubtotal += itemSubtotal;
                         runningCostSubtotal += costSubtotal;
+
                         const row = document.createElement('tr');
-                        // ★★★ 原価が未設定(0または空)の場合は空欄にする ★★★
                         const displayCost = item.cost ? item.cost.toLocaleString() : '';
                         const displayCostSubtotal = item.cost ? costSubtotal.toLocaleString() : '';
 
-                        row.innerHTML = `<td>${item.productName}</td><td class="price-cell">${item.quantity}</td><td class="price-cell">${item.price.toLocaleString()}</td><td class="subtotal">${itemSubtotal.toLocaleString()}</td><td class="price-cell">${displayCost}</td><td class="cost-subtotal">${displayCostSubtotal}</td>`;
+                        row.appendChild(createCell(item.productName, 'product-name-cell'));
+                        row.appendChild(createCell(item.quantity, 'price-cell'));
+                        row.appendChild(createCell(item.price.toLocaleString(), 'price-cell'));
+                        row.appendChild(createCell(itemSubtotal.toLocaleString(), 'subtotal'));
+                        row.appendChild(createCell(displayCost, 'price-cell'));
+                        row.appendChild(createCell(displayCostSubtotal, 'cost-subtotal'));
                         tbody.appendChild(row);
+
                         const isLastItem = index === dept.items.length - 1;
                         if (itemCounter % 6 === 0 || isLastItem) {
-                            // 6の倍数で、かつ最後の品目でない場合のみ「6品小計」とする
-                            const label = (itemCounter % 6 === 0 && !isLastItem) ? '売価金額合計' : '売価金額合計';
+                            const label = '合計';
                             const subtotalRow = document.createElement('tr');
                             subtotalRow.className = 'subtotal-row';
-                            subtotalRow.innerHTML = `<td colspan="3" class="total-label">${label}</td><td class="total-value">${runningSubtotal.toLocaleString()}</td><td class="total-label">原価金額合計</td><td class="total-value">${runningCostSubtotal.toLocaleString()}</td>`;
+
+                            const labelCell1 = createCell(label, 'total-label');
+                            labelCell1.colSpan = 3;
+                            subtotalRow.appendChild(labelCell1);
+                            subtotalRow.appendChild(createCell(runningSubtotal.toLocaleString(), 'total-value'));
+                            subtotalRow.appendChild(createCell(label, 'total-label'));
+                            subtotalRow.appendChild(createCell(runningCostSubtotal.toLocaleString(), 'total-value'));
+
                             tbody.appendChild(subtotalRow);
                             runningSubtotal = 0;
                             runningCostSubtotal = 0;
