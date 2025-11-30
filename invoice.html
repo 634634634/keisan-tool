@@ -9,8 +9,8 @@
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; line-height: 1.6; color: #333; max-width: 1100px; margin: 20px auto; padding: 0 5px; background-color: #f9f9f9; font-size: 17px; }
         h1, h2, h3 { color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 10px; }
         h2 { font-size: 1.4em; margin-top: 40px; border-bottom-style: dashed; }
-        h3 { font-size: 1.2em; margin-top: 25px; border-bottom: 1px solid #ccc; color: #34495e; }
-        .container { background-color: #fff; padding: 25px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); margin-bottom: 20px; }
+        h3 { font-size: 1.2em; margin-top: 20px; border-bottom: 1px solid #ccc; color: #34495e; }
+        .container { background-color: #fff; padding: 15px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); margin-bottom: 20px; }
         table { width: 100%; border-collapse: collapse; margin-bottom: 20px; table-layout: fixed; }
         th, td { border: 1px solid #ddd; padding: 8px; text-align: left; vertical-align: middle; word-wrap: break-word; }
         th { background-color: #f2f2f2; }
@@ -31,7 +31,7 @@
 
         /* ★★★ 商品名と数字以外の文字を小さくする ★★★ */
         th, .col-department, .total-label {
-            font-size: 0.9em;
+            font-size: 0.85em;
         }
 
         /* ★★★ スマホ表示用の調整 ★★★ */
@@ -40,6 +40,12 @@
                 font-size: 16px; /* スマホでは少し文字を小さく */
                 margin-top: 10px;
                 margin-bottom: 10px;
+            }
+            .container {
+                padding: 10px; /* スマホではコンテナの余白をさらに詰める */
+            }
+            h2 {
+                margin-top: 25px; /* スマホでは見出しの上の余白を詰める */
             }
         }
     </style>
