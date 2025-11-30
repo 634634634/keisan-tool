@@ -16,7 +16,10 @@
         th { background-color: #f2f2f2; }
         input { box-sizing: border-box; width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px; font-size: 1em; text-align: right; }
         .subtotal, .total-value, .price-cell, .cost-subtotal { text-align: right; }
-        .product-name-cell { text-align: right; } /* ★★★ 商品名・品名を右揃えにするクラス ★★★ */
+        .product-name-cell {
+            text-align: right;
+            font-size: 0.9em; /* ★★★ 品名のフォントを少し小さく ★★★ */
+        }
         #customerProductsTable .quantity-input { width: 100%; text-align: right; }
         .subtotal-row td { background-color: #f0f8ff; font-weight: bold; }
         .total-label { text-align: right; }
@@ -29,7 +32,11 @@
             text-align: center;
             font-weight: normal; /* ★★★ ヘッダーの太字を解除 ★★★ */
         }
-        .col-product-name { width: 62%; } .col-quantity { width: 15%; } .col-price { width: 13%; } .col-department { width: 10%; text-align: center; } .col-subtotal { width: 14%; } .col-cost { width: 13%; } .col-cost-subtotal { width: 14%; }
+        /* 上段の商品リストの列幅 */
+        .col-product-name { width: 62%; } .col-quantity { width: 15%; } .col-price { width: 13%; } .col-department { width: 10%; text-align: center; }
+        /* 下段の伝票の列幅 */
+        .invoice-col-name { width: 28%; } .invoice-col-qty { width: 8%; } .invoice-col-cost-price { width: 12%; } .invoice-col-cost-sub { width: 20%; } .invoice-col-price { width: 12%; } .invoice-col-sub { width: 20%; }
+
 
         /* ★★★ 商品名と数字以外の文字を小さくする ★★★ */
         th, .col-department, .total-label {
@@ -193,7 +200,7 @@
                     departmentHeader.textContent = dept.name;
                     invoiceContainer.appendChild(departmentHeader);
                     const table = document.createElement('table');
-                    table.innerHTML = `<thead><tr><th class="col-product-name">品名</th><th class="col-quantity">数量</th><th class="col-price">原単価</th><th class="col-subtotal">原価金額</th><th class="col-cost">売単価</th><th class="col-cost-subtotal">売価金額</th></tr></thead>`;
+                    table.innerHTML = `<thead><tr><th class="invoice-col-name">品名</th><th class="invoice-col-qty">数量</th><th class="invoice-col-cost-price">原単価</th><th class="invoice-col-cost-sub">原価金額</th><th class="invoice-col-price">売単価</th><th class="invoice-col-sub">売価金額</th></tr></thead>`;
                     const tbody = document.createElement('tbody');
                     let itemCounter = 0;
                     let runningSubtotal = 0;
