@@ -2,11 +2,11 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, shrink-to-fit=no">
     <title>納品金額計算</title>
     <style>
         /* スタイルは変更なし */
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; line-height: 1.6; color: #333; max-width: 1100px; margin: 20px auto; padding: 0 15px; background-color: #f9f9f9; font-size: 17px; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; line-height: 1.6; color: #333; max-width: 1100px; margin: 20px auto; padding: 0 5px; background-color: #f9f9f9; font-size: 17px; }
         h1, h2, h3 { color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 10px; }
         h2 { font-size: 1.4em; margin-top: 40px; border-bottom-style: dashed; }
         h3 { font-size: 1.2em; margin-top: 25px; border-bottom: 1px solid #ccc; color: #34495e; }
@@ -14,9 +14,9 @@
         table { width: 100%; border-collapse: collapse; margin-bottom: 20px; table-layout: fixed; }
         th, td { border: 1px solid #ddd; padding: 8px; text-align: left; vertical-align: middle; word-wrap: break-word; }
         th { background-color: #f2f2f2; }
-        input { width: 95%; padding: 8px; border: 1px solid #ccc; border-radius: 4px; font-size: 1em; text-align: right; }
+        input { box-sizing: border-box; width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px; font-size: 1em; text-align: right; }
         .subtotal, .total-value, .price-cell, .cost-subtotal { text-align: right; }
-        #customerProductsTable .quantity-input { width: 80px; text-align: right; }
+        #customerProductsTable .quantity-input { width: 100%; text-align: right; }
         .subtotal-row td { background-color: #f0f8ff; font-weight: bold; }
         .total-label { text-align: right; }
         .total-value { color: #333; }
@@ -28,6 +28,20 @@
             text-align: center;
         }
         .col-product-name { width: 34%; } .col-department { width: 15%; text-align: center; } .col-quantity { width: 10%; } .col-price { width: 13%; } .col-subtotal { width: 14%; } .col-cost { width: 13%; } .col-cost-subtotal { width: 14%; }
+
+        /* ★★★ 商品名と数字以外の文字を小さくする ★★★ */
+        th, .col-department, .total-label {
+            font-size: 0.9em;
+        }
+
+        /* ★★★ スマホ表示用の調整 ★★★ */
+        @media (max-width: 768px) {
+            body {
+                font-size: 16px; /* スマホでは少し文字を小さく */
+                margin-top: 10px;
+                margin-bottom: 10px;
+            }
+        }
     </style>
 </head>
 <body>
