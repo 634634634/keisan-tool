@@ -15,7 +15,10 @@
         th, td { border: 1px solid #ddd; padding: 8px; text-align: left; vertical-align: middle; word-wrap: break-word; }
         th { background-color: #f2f2f2; }
         input { box-sizing: border-box; width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px; font-size: 1em; text-align: right; }
-        .subtotal, .total-value, .price-cell, .cost-subtotal { text-align: right; }
+        .subtotal, .total-value, .price-cell, .cost-subtotal {
+            text-align: right;
+            font-size: 0.9em; /* ★★★ 数字のフォントを少し小さく ★★★ */
+        }
         .product-name-cell {
             text-align: right;
             font-size: 0.9em; /* ★★★ 品名のフォントを少し小さく ★★★ */
@@ -35,7 +38,7 @@
         /* 上段の商品リストの列幅 */
         .col-product-name { width: 62%; } .col-quantity { width: 15%; } .col-price { width: 13%; } .col-department { width: 10%; text-align: center; }
         /* 下段の伝票の列幅 */
-        .invoice-col-name { width: 28%; } .invoice-col-qty { width: 8%; } .invoice-col-cost-price { width: 12%; } .invoice-col-cost-sub { width: 20%; } .invoice-col-price { width: 12%; } .invoice-col-sub { width: 20%; }
+        .invoice-col-name { width: 30%; } .invoice-col-qty { width: 10%; } .invoice-col-cost-price { width: 13%; } .invoice-col-cost-sub { width: 17%; } .invoice-col-price { width: 13%; } .invoice-col-sub { width: 17%; }
 
 
         /* ★★★ 商品名と数字以外の文字を小さくする ★★★ */
@@ -246,9 +249,4 @@
                     table.appendChild(tbody);
                     invoiceContainer.appendChild(table);
                 }
-            }
-        });
-        // ★★★ ここまで修正 ★★★
-    </script>
-</body>
-</html>
+   
