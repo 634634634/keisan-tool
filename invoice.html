@@ -7,12 +7,21 @@
     <style>
         /* スタイルは変更なし */
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; line-height: 1.6; color: #333; width: 500px; margin: 20px auto; padding: 0 5px; background-color: #f9f9f9; font-size: 17px; }
-        h1, h2, h3 { color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 10px; }
-        h2 { font-size: 1.4em; margin-top: 40px; border-bottom-style: dashed; }
+        h1, h2, h3 { color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 8px; }
+        /* ★★★ メインタイトルの調整 ★★★ */
+        h1 { font-size: 1.4em; margin-top: 0; margin-bottom: 15px; }
+        /* ★★★ 伝票内容見出しの調整 ★★★ */
+        h2 { font-size: 1.1em; margin-top: 20px; border-bottom-style: dashed; }
         h3 { font-size: 1.2em; margin-top: 20px; border-bottom: 1px solid #ccc; color: #34495e; }
         .container { background-color: #fff; padding: 15px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); margin-bottom: 20px; }
         table { width: 100%; border-collapse: collapse; margin-bottom: 20px; table-layout: fixed; }
-        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; vertical-align: middle; word-wrap: break-word; }
+        /* ★★★ 得意先名（サブタイトル）のスタイル ★★★ */
+        .customer-name-subtitle {
+            font-size: 1.2em;
+            font-weight: bold;
+            margin: -10px 0 20px 0;
+        }
+        th, td { border: 1px solid #ddd; padding: 3px 4px; text-align: left; vertical-align: middle; word-wrap: break-word; } /* ★★★ 左右の余白を調整 ★★★ */
         th { background-color: #f2f2f2; }
         input { box-sizing: border-box; width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px; font-size: 1em; text-align: right; }
         .subtotal, .total-value, .price-cell, .cost-subtotal {
@@ -36,9 +45,9 @@
             font-weight: normal; /* ★★★ ヘッダーの太字を解除 ★★★ */
         }
         /* 上段の商品リストの列幅 */
-        .col-product-name { width: 57%; } .col-quantity { width: 20%; } .col-price { width: 13%; } .col-department { width: 10%; text-align: center; }
+        .col-product-name { width: 50%; } .col-quantity { width: 20%; } .col-price { width: 12%; } .col-department { width: 15%; text-align: center; }
         /* 下段の伝票の列幅 */
-        .invoice-col-name { width: 42%; } .invoice-col-qty { width: 8%; } .invoice-col-cost-price { width: 10%; } .invoice-col-cost-sub { width: 15%; } .invoice-col-price { width: 10%; } .invoice-col-sub { width: 15%; }
+        .invoice-col-name { width: 43%; } .invoice-col-qty { width: 7%; } .invoice-col-cost-price { width: 10%; } .invoice-col-cost-sub { width: 15%; } .invoice-col-price { width: 10%; } .invoice-col-sub { width: 15%; }
 
 
         /* ★★★ 商品名と数字以外の文字を小さくする ★★★ */
@@ -66,8 +75,14 @@
     <div class="container">
         <a href="index.html" class="back-link">&laquo; 得意先一覧に戻る</a>
         <h1>納品金額計算</h1>
+        <p id="customerNameHeader" class="customer-name-subtitle"></p>
         <div id="customerProductsContainer">
             <p>数量を入力すると、下の伝票に自動で反映されます。</p>
+            <!-- ★★★ 一時保存ボタンを追加 ★★★ -->
+            <div style="margin-bottom: 15px; display: flex; gap: 10px;">
+                <button id="saveButton" style="padding: 8px 12px; border: none; background-color: #3498db; color: white; border-radius: 4px; cursor: pointer;">入力内容を一時保存</button>
+                <button id="clearButton" style="padding: 8px 12px; border: none; background-color: #e74c3c; color: white; border-radius: 4px; cursor: pointer;">保存データをクリア</button>
+            </div>
             <table id="customerProductsTable">
                 <thead>
                     <tr>
@@ -126,6 +141,9 @@
             const customerId = parseInt(params.get('customerId'), 10);
             const customerNameEl = document.querySelector('h2 > strong');
 
+            const saveButton = document.getElementById('saveButton');
+            const clearButton = document.getElementById('clearButton');
+
             if (!customerId) {
                 document.querySelector('body').innerHTML = `<div class="container"><h1>エラー</h1><p>有効な得意先が選択されていません。</p><a href="customers.html">得意先一覧に戻ってください。</a></div>`;
                 return;
@@ -142,8 +160,14 @@
             }
 
             const customerName = customerSpecificData[0].customerName;
+            document.getElementById('customerNameHeader').textContent = customerName;
+            customerNameEl.textContent = customerName;
+
             displayCustomerProducts(customerName, customerSpecificData);
-            generateInvoices(customerSpecificData); // ★★★ 呼び出しをここへ移動 ★★★
+            loadQuantitiesAndGenerateInvoices(customerSpecificData);
+
+            saveButton.addEventListener('click', () => saveQuantities(customerId));
+            clearButton.addEventListener('click', () => clearQuantities(customerId, customerSpecificData));
             customerProductsTableBody.addEventListener('input', () => generateInvoices(customerSpecificData));
 
             function displayCustomerProducts(customerName, products) {
@@ -161,6 +185,46 @@
                     customerProductsTableBody.innerHTML = '<tr><td colspan="4">この得意先に登録されている商品はありません。</td></tr>';
                 }
             }
+
+            // ★★★ ここから一時保存関連の関数 ★★★
+
+            function saveQuantities(customerId) {
+                const quantities = {};
+                customerProductsTableBody.querySelectorAll('tr[data-product-id]').forEach(row => {
+                    const productId = row.dataset.productId;
+                    const quantity = row.querySelector('.quantity-input').value;
+                    if (quantity && parseFloat(quantity) > 0) {
+                        quantities[productId] = quantity;
+                    }
+                });
+                localStorage.setItem(`savedQuantities_${customerId}`, JSON.stringify(quantities));
+                alert('入力内容を保存しました。');
+            }
+
+            function loadQuantitiesAndGenerateInvoices(products) {
+                const savedQuantities = JSON.parse(localStorage.getItem(`savedQuantities_${customerId}`) || '{}');
+                customerProductsTableBody.querySelectorAll('tr[data-product-id]').forEach(row => {
+                    const productId = row.dataset.productId;
+                    if (savedQuantities[productId]) {
+                        row.querySelector('.quantity-input').value = savedQuantities[productId];
+                    }
+                });
+                generateInvoices(products); // 数量を復元した後に伝票を生成
+            }
+
+            function clearQuantities(customerId, products) {
+                if (confirm('保存したデータと入力内容をすべてクリアします。よろしいですか？')) {
+                    localStorage.removeItem(`savedQuantities_${customerId}`);
+                    customerProductsTableBody.querySelectorAll('.quantity-input').forEach(input => {
+                        input.value = '';
+                    });
+                    generateInvoices(products); // 伝票をクリア
+                    alert('保存データをクリアしました。');
+                }
+            }
+
+            // ★★★ ここまで一時保存関連の関数 ★★★
+
 
             function generateInvoices(products) {
                 const allItems = collectAllItems(products);
@@ -255,5 +319,3 @@
     </script>
 </body>
 </html>
-
-
