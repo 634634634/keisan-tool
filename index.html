@@ -36,12 +36,35 @@
                 if (!response.ok) throw new Error('Network response was not ok.');
                 const csvText = await response.text();
                 const lines = csvText.trim().split(/\r\n|\n/);
-                const headers = lines[0].split(',');
+                
+                // CSVの1行をパースする関数（引用符対応）
+                const parseCsvRow = (row) => {
+                    const result = [];
+                    let current = '';
+                    let inQuotes = false;
+                    for (let i = 0; i < row.length; i++) {
+                        const char = row[i];
+                        if (char === '"') {
+                            inQuotes = !inQuotes;
+                        } else if (char === ',' && !inQuotes) {
+                            result.push(current);
+                            current = '';
+                        } else {
+                            current += char;
+                        }
+                    }
+                    result.push(current);
+                    return result.map(val => val.replace(/^"|"$/g, '').trim());
+                };
+
+                const headers = parseCsvRow(lines[0]);
                 return lines.slice(1).map(line => {
-                    const values = line.split(',');
+                    const values = parseCsvRow(line);
                     return headers.reduce((obj, header, index) => {
-                        const value = values[index];
-                        obj[header] = isNaN(value) || value === '' ? value : parseFloat(value);
+                        const rawValue = values[index];
+                        // 値からカンマを削除してから数値に変換
+                        const cleanValue = typeof rawValue === 'string' ? rawValue.replace(/,/g, '') : rawValue;
+                        obj[header] = isNaN(cleanValue) || cleanValue === '' ? rawValue : parseFloat(cleanValue);
                         return obj;
                     }, {});
                 });
@@ -56,8 +79,8 @@
             if (!masterData || masterData.length === 0) return [];
             
             const customers = masterData.reduce((acc, row) => {
-                if (!acc.some(c => c.id === row.customerId)) {
-                    acc.push({ id: row.customerId, name: row.customerName });
+                if (!acc.some(c => c.id === row['得意先コード'])) {
+                    acc.push({ id: row['得意先コード'], name: row['得意先名'] });
                 }
                 return acc;
             }, []);
@@ -73,7 +96,8 @@
                 customers.forEach(customer => {
                     const listItem = document.createElement('li');
                     const link = document.createElement('a');
-                    link.href = `invoice.html?customerId=${customer.id}`;
+                    const timestamp = new Date().getTime(); // ★★★ キャッシュ対策でタイムスタンプを追加
+                    link.href = `invoice.html?customerId=${customer.id}&_=${timestamp}`;
                     link.textContent = customer.name;
                     listItem.appendChild(link);
                     customerListEl.appendChild(listItem);
