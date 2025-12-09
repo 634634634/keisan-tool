@@ -88,6 +88,23 @@
                 margin-top: 25px; /* スマホでは見出しの上の余白を詰める */
             }
         }
+
+        /* ★★★ トースト通知のスタイル ★★★ */
+        .toast-notification {
+            position: fixed;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background-color: rgba(44, 62, 80, 0.85);
+            color: white;
+            padding: 10px 20px;
+            border-radius: 25px;
+            z-index: 1000;
+            opacity: 0;
+            transition: opacity 0.5s, top 0.5s;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+        }
+        .toast-notification.show { opacity: 1; top: 30px; }
     </style>
 </head>
 <body>
@@ -98,10 +115,10 @@
         <div id="customerProductsContainer">
             <p>数量を入力すると、下の伝票に自動で反映されます。</p>
             <!-- ★★★ 一時保存ボタンを追加 ★★★ -->
-            <div style="margin-bottom: 15px; display: flex; gap: 10px;">
-                <button id="saveButton" style="padding: 8px 12px; border: none; background-color: #3498db; color: white; border-radius: 4px; cursor: pointer;">入力内容を一時保存</button>
-                <button id="clearButton" style="padding: 8px 12px; border: none; background-color: #e74c3c; color: white; border-radius: 4px; cursor: pointer;">保存データをクリア</button>
-                <button id="editPricesButton" style="padding: 8px 12px; border: none; background-color: #2ecc71; color: white; border-radius: 4px; cursor: pointer;">売価を編集</button>
+            <div style="margin-bottom: 15px; display: flex; gap: 10px; flex-wrap: wrap;">
+                <button id="saveButton" class="action-button" style="background-color: #3498db;">入力内容を一時保存</button>
+                <button id="clearButton" class="action-button" style="background-color: #e74c3c;">入力内容をクリア</button>
+                <button id="editPricesButton" class="action-button" style="background-color: #2ecc71;">売価を編集</button>
             </div>
             <table id="customerProductsTable">
                 <thead>
@@ -121,6 +138,15 @@
     <script>
         // ★★★ ここから修正 ★★★
         const MASTER_DATA_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRpGhiBjllLFan-dzUY5k9Bog2RKMGdcEph5E4itfZaOVQ1dEZQIqNM6_vGG5OsUyvwfeC4nDG-64aa/pub?gid=0&single=true&output=csv';
+        // ★★★ ここに、先ほどコピーしたGASのウェブアプリURLを貼り付けます ★★★
+        const GAS_WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbykg6NpdFiQi9By9wNCOP6StfQ3GZGf0hpDrjs3UTnhQ33D8RLZkZUWTWGTMpVdQmqOtw/exec';
+
+        // ★★★ ボタンの共通スタイルを追加 ★★★
+        const style = document.createElement('style');
+        style.textContent = `
+            .action-button { padding: 8px 12px; border: none; color: white; border-radius: 4px; cursor: pointer; }
+        `;
+        document.head.appendChild(style);
 
         async function fetchCsvAsJson(url) {
             try {
@@ -176,6 +202,27 @@
             return cell;
         }
 
+        // ★★★ トースト通知を表示する関数 ★★★
+        function showToast(message, duration = 2000) {
+            const toast = document.createElement('div');
+            toast.className = 'toast-notification';
+            toast.textContent = message;
+            document.body.appendChild(toast);
+
+            // 少し遅れて表示クラスを追加し、フェードインアニメーションを開始
+            setTimeout(() => {
+                toast.classList.add('show');
+            }, 100);
+
+            // 指定時間後に非表示クラスに戻し、フェードアウトさせる
+            setTimeout(() => {
+                toast.classList.remove('show');
+                // アニメーション完了後に要素を削除
+                toast.addEventListener('transitionend', () => toast.remove());
+            }, duration);
+        }
+
+
         // ★★★ キャッシュ対策：戻るリンクにタイムスタンプを付与 ★★★
         const backLink = document.querySelector('.back-link');
         if (backLink) backLink.href = `index.html?_=${new Date().getTime()}`;
@@ -186,7 +233,6 @@
 
             const params = new URLSearchParams(window.location.search);
             const customerId = parseInt(params.get('customerId'), 10);
-            const customerNameEl = document.querySelector('h2 > strong');
 
             const saveButton = document.getElementById('saveButton');
             const clearButton = document.getElementById('clearButton');
@@ -209,25 +255,59 @@
 
             const customerName = customerSpecificData[0]['得意先名'];
             document.getElementById('customerNameHeader').textContent = customerName;
-            customerNameEl.textContent = customerName;
 
             displayCustomerProducts(customerName, customerSpecificData);
             loadQuantitiesAndGenerateInvoices(customerSpecificData);
 
             saveButton.addEventListener('click', () => saveQuantities(customerId));
             clearButton.addEventListener('click', () => clearQuantities(customerId, customerSpecificData));
-            editPricesButton.addEventListener('click', () => {
-                const isEditing = customerProductsTableBody.classList.toggle('is-editing-prices');
-                editPricesButton.textContent = isEditing ? '編集を完了' : '売価を編集';
-                editPricesButton.style.backgroundColor = isEditing ? '#f39c12' : '#2ecc71';
-                // 編集完了時に表示を更新
-                if (!isEditing) {
-                    customerProductsTableBody.querySelectorAll('.sell-price-input').forEach(input => {
-                        input.closest('td').querySelector('.sell-price-display').textContent = parseFloat(input.value || 0).toLocaleString();
+            
+            // ★★★ 編集と保存を統合したボタンのイベントリスナー ★★★
+            editPricesButton.addEventListener('click', async () => {
+                const isEditing = customerProductsTableBody.classList.contains('is-editing-prices');
+
+                if (isEditing) {
+                    // 保存モードの場合：保存処理を実行
+                    await savePricesToSheet(customerSpecificData);
+
+                    // 編集モードを終了
+                    customerProductsTableBody.classList.remove('is-editing-prices');
+                    editPricesButton.textContent = '売価を編集';
+                    editPricesButton.style.backgroundColor = '#2ecc71';
+
+                    // 表示を更新
+                    customerProductsTableBody.querySelectorAll('tr[data-product-id]').forEach(row => {
+                        const sellPrice = parseFloat(row.querySelector('.sell-price-input').value);
+                        const displaySpan = row.querySelector('.sell-price-display');
+                        displaySpan.textContent = (sellPrice && sellPrice > 0) ? sellPrice.toLocaleString() : '';
                     });
+                } else {
+                    // 編集モードの場合：編集モードを開始
+                    customerProductsTableBody.classList.add('is-editing-prices');
+                    editPricesButton.textContent = '売価を保存';
+                    editPricesButton.style.backgroundColor = '#16a085'; // 保存ボタンの色
                 }
             });
+
             customerProductsTableBody.addEventListener('input', () => generateInvoices(customerSpecificData));
+            
+            // ★★★ Enterキーで次の数量入力欄に移動する機能 ★★★
+            customerProductsTableBody.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' && e.target.classList.contains('quantity-input')) {
+                    e.preventDefault(); // フォームの送信を防ぐ
+                    const allInputs = Array.from(customerProductsTableBody.querySelectorAll('.quantity-input'));
+                    const currentIndex = allInputs.indexOf(e.target);
+                    const nextIndex = currentIndex + 1;
+                    if (nextIndex < allInputs.length) {
+                        allInputs[nextIndex].focus();
+                        allInputs[nextIndex].select(); // 次の入力欄のテキストを選択状態にする
+                    } else {
+                        // 最後の入力欄ならフォーカスを外す
+                        e.target.blur();
+                    }
+                }
+            });
+
 
             function displayCustomerProducts(customerName, products) {
                 customerProductsTableBody.innerHTML = '';
@@ -274,7 +354,7 @@
                     }
                 });
                 localStorage.setItem(`savedQuantities_${customerId}`, JSON.stringify(quantities));
-                alert('入力内容を保存しました。');
+                showToast('入力内容を保存しました。');
             }
 
             function loadQuantitiesAndGenerateInvoices(products) {
@@ -294,14 +374,67 @@
             }
 
             function clearQuantities(customerId, products) {
-                if (confirm('保存したデータと、入力中の数量・売価をすべてクリアします。よろしいですか？')) {
+                if (confirm('入力中の内容と一時保存したデータをすべてクリアします。よろしいですか？')) {
                     localStorage.removeItem(`savedQuantities_${customerId}`);
                     customerProductsTableBody.querySelectorAll('.quantity-input, .sell-price-input').forEach(input => {
                         input.value = '';
                     });
                     displayCustomerProducts(customerName, products); // 売価を元の値に戻すため再描画
                     generateInvoices(products); // 伝票をクリア
-                    alert('保存データをクリアしました。');
+                }
+            }
+
+            // ★★★ スプレッドシートに保存する関数 ★★★
+            async function savePricesToSheet(products) {
+                if (GAS_WEB_APP_URL === 'ここにGASのウェブアプリURLを貼り付け') {
+                    alert('エラー: Google Apps ScriptのウェブアプリURLが設定されていません。');
+                    return;
+                }
+
+                const updates = [];
+                customerProductsTableBody.querySelectorAll('tr[data-product-id]').forEach(row => {
+                    const productId = parseInt(row.dataset.productId, 10);
+                    const originalProduct = products.find(p => p['商品コード'] === productId);
+                    const newSellPriceInput = row.querySelector('.sell-price-input').value;
+                    
+                    // 元の売価（未設定ならnull）と新しい売価（空ならnull）を準備
+                    const originalSellPrice = originalProduct ? (originalProduct['売価'] || null) : null;
+                    const newSellPrice = newSellPriceInput !== '' ? parseFloat(newSellPriceInput) : null;
+
+                    // 2つの値を比較して、変更があった場合のみ更新対象とする
+                    if (originalSellPrice !== newSellPrice) {
+                        updates.push({
+                            '商品コード': productId,
+                            '売価': newSellPrice
+                        });
+                    }
+                });
+
+                if (updates.length === 0) {
+                    alert('スプレッドシートの元の値から変更された売価はありません。');
+                    return;
+                }
+
+                if (!confirm(`${updates.length}件の売価を保存します。よろしいですか？`)) {
+                    return;
+                }
+
+                editPricesButton.disabled = true;
+                editPricesButton.textContent = '保存中...';
+
+                try {
+                    const response = await fetch(GAS_WEB_APP_URL, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'text/plain;charset=utf-8' }, // GASの仕様上、text/plainで送る
+                        body: JSON.stringify({ updates: updates })
+                    });
+                    const result = await response.json();
+                    showToast(result.message || '処理が完了しました。');
+                } catch (error) {
+                    alert('保存中にエラーが発生しました。\n' + error.message);
+                } finally {
+                    editPricesButton.disabled = false;
+                    // ボタンのテキストは、この関数の呼び出し元で「売価を編集」に戻される
                 }
             }
 
