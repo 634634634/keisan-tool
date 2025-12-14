@@ -56,22 +56,31 @@
         }
 
         /* ★★★ 売価の表示・非表示切り替えスタイル ★★★ */
-        .sell-price-input {
+        .editable-input {
             display: none;
             -moz-appearance: textfield; /* Firefoxで矢印を非表示 */
         }
         /* ★★★ 売価入力欄の矢印を非表示にする (Chrome, Safari, Edge) ★★★ */
-        .sell-price-input::-webkit-outer-spin-button,
-        .sell-price-input::-webkit-inner-spin-button {
+        .editable-input[type="number"]::-webkit-outer-spin-button,
+        .editable-input[type="number"]::-webkit-inner-spin-button {
             -webkit-appearance: none;
             margin: 0;
         }
 
-        .is-editing-prices .sell-price-input { display: block; }
-        .is-editing-prices .sell-price-display { display: none; }
-        .sell-price-display {
+        /* ★★★ 編集モードのスタイル ★★★ */
+        .is-editing .sell-price-input, .is-editing .dept-input { display: block; }
+        .is-editing .sell-price-display, .is-editing .dept-display { display: none; }
+        .new-product-row .editable-input { display: block; } /* 新規行は常に編集可能 */
+
+        .display-span {
             display: block;
-            text-align: right;
+            /* text-align: right; */ /* この行をコメントアウトまたは削除 */
+        }
+
+        /* ★★★ マイナス記号(▲)のスタイル ★★★ */
+        .minus-symbol {
+            font-size: 0.7em; /* フォントを小さく */
+            vertical-align: 1px; /* 位置を少し上に調整 */
         }
 
         /* ★★★ スマホ表示用の調整 ★★★ */
@@ -116,9 +125,11 @@
             <p>数量を入力すると、下の伝票に自動で反映されます。</p>
             <!-- ★★★ 一時保存ボタンを追加 ★★★ -->
             <div style="margin-bottom: 15px; display: flex; gap: 10px; flex-wrap: wrap;">
-                <button id="saveButton" class="action-button" style="background-color: #3498db;">入力内容を一時保存</button>
-                <button id="clearButton" class="action-button" style="background-color: #e74c3c;">入力内容をクリア</button>
-                <button id="editPricesButton" class="action-button" style="background-color: #2ecc71;">売価を編集</button>
+                <button id="saveQuantitiesButton" class="action-button" style="background-color: #3498db;">数量を保存</button>
+                <button id="clearButton" class="action-button" style="background-color: #e74c3c;">数量をクリア</button>
+                <button id="editProductsButton" class="action-button" style="background-color: #2ecc71;">商品を編集</button>
+                <button id="addProductButton" class="action-button" style="background-color: #9b59b6; display: none;">商品を追加</button>
+                <button id="cancelEditButton" class="action-button" style="background-color: #f39c12; display: none;">キャンセル</button>
             </div>
             <table id="customerProductsTable">
                 <thead>
@@ -126,7 +137,7 @@
                         <th class="col-product-name">商品名</th><th class="col-quantity">数量</th><th class="col-price">単価</th><th class="col-sell-price">売価</th><th class="col-department">部門</th>
                     </tr>
                 </thead>
-                <tbody><tr><td colspan="4">データを読み込んでいます...</td></tr></tbody>
+                <tbody><tr><td colspan="5" style="text-align: center;">データを読み込んでいます...</td></tr></tbody>
             </table>
         </div>
     </div>
@@ -136,409 +147,575 @@
     </div>
 
     <script>
-        // ★★★ ここから修正 ★★★
-        const MASTER_DATA_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRpGhiBjllLFan-dzUY5k9Bog2RKMGdcEph5E4itfZaOVQ1dEZQIqNM6_vGG5OsUyvwfeC4nDG-64aa/pub?gid=0&single=true&output=csv';
-        // ★★★ ここに、先ほどコピーしたGASのウェブアプリURLを貼り付けます ★★★
-        const GAS_WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbykg6NpdFiQi9By9wNCOP6StfQ3GZGf0hpDrjs3UTnhQ33D8RLZkZUWTWGTMpVdQmqOtw/exec';
-
-        // ★★★ ボタンの共通スタイルを追加 ★★★
-        const style = document.createElement('style');
-        style.textContent = `
-            .action-button { padding: 8px 12px; border: none; color: white; border-radius: 4px; cursor: pointer; }
-        `;
-        document.head.appendChild(style);
-
-        async function fetchCsvAsJson(url) {
-            try {
-                const response = await fetch(url);
-                if (!response.ok) throw new Error('Network response was not ok.');
-                const csvText = await response.text();
-                const lines = csvText.trim().split(/\r\n|\n/);
-
-                // CSVの1行をパースする関数（引用符対応）
-                const parseCsvRow = (row) => {
-                    const result = [];
-                    let current = '';
-                    let inQuotes = false;
-                    for (let i = 0; i < row.length; i++) {
-                        const char = row[i];
-                        if (char === '"') {
-                            inQuotes = !inQuotes;
-                        } else if (char === ',' && !inQuotes) {
-                            result.push(current);
-                            current = '';
-                        } else {
-                            current += char;
-                        }
-                    }
-                    result.push(current);
-                    return result.map(val => val.replace(/^"|"$/g, '').trim());
-                };
-
-                const headers = parseCsvRow(lines[0]);
-                return lines.slice(1).map(line => {
-                    const values = parseCsvRow(line);
-                    return headers.reduce((obj, header, index) => {
-                        const rawValue = values[index];
-                        // 値からカンマを削除してから数値に変換
-                        const cleanValue = typeof rawValue === 'string' ? rawValue.replace(/,/g, '') : rawValue;
-                        obj[header] = isNaN(cleanValue) || cleanValue === '' ? rawValue : parseFloat(cleanValue);
-                        return obj;
-                    }, {});
-                });
-            } catch (error) {
-                console.error('Error fetching or parsing CSV:', error);
-                return [];
-            }
-        }
-
-        // 安全にテキストをセルに設定するヘルパー関数
-        function createCell(text, className) {
-            const cell = document.createElement('td');
-            cell.textContent = text;
-            if (className) {
-                cell.className = className;
-            }
-            return cell;
-        }
-
-        // ★★★ トースト通知を表示する関数 ★★★
-        function showToast(message, duration = 2000) {
-            const toast = document.createElement('div');
-            toast.className = 'toast-notification';
-            toast.textContent = message;
-            document.body.appendChild(toast);
-
-            // 少し遅れて表示クラスを追加し、フェードインアニメーションを開始
-            setTimeout(() => {
-                toast.classList.add('show');
-            }, 100);
-
-            // 指定時間後に非表示クラスに戻し、フェードアウトさせる
-            setTimeout(() => {
-                toast.classList.remove('show');
-                // アニメーション完了後に要素を削除
-                toast.addEventListener('transitionend', () => toast.remove());
-            }, duration);
-        }
-
-
-        // ★★★ キャッシュ対策：戻るリンクにタイムスタンプを付与 ★★★
-        const backLink = document.querySelector('.back-link');
-        if (backLink) backLink.href = `index.html?_=${new Date().getTime()}`;
-
-        document.addEventListener('DOMContentLoaded', async () => {
-            const customerProductsTableBody = document.querySelector('#customerProductsTable tbody');
-            const invoiceContainer = document.getElementById('invoiceContainer');
-
-            const params = new URLSearchParams(window.location.search);
-            const customerId = parseInt(params.get('customerId'), 10);
-
-            const saveButton = document.getElementById('saveButton');
-            const clearButton = document.getElementById('clearButton');
-            const editPricesButton = document.getElementById('editPricesButton');
-
-            if (!customerId) {
-                document.querySelector('body').innerHTML = `<div class="container"><h1>エラー</h1><p>有効な得意先が選択されていません。</p><a href="customers.html">得意先一覧に戻ってください。</a></div>`;
-                return;
-            }
-
-            const masterData = await fetchCsvAsJson(MASTER_DATA_URL);
-            
-            // この得意先に関連するデータだけをフィルタリング
-            const customerSpecificData = masterData.filter(row => row['得意先コード'] === customerId);
-
-            if (customerSpecificData.length === 0) {
-                 document.querySelector('body').innerHTML = `<div class="container"><h1>エラー</h1><p>指定された得意先のデータが見つかりません。</p><a href="customers.html">得意先一覧に戻ってください。</a></div>`;
-                return;
-            }
-
-            const customerName = customerSpecificData[0]['得意先名'];
-            document.getElementById('customerNameHeader').textContent = customerName;
-
-            displayCustomerProducts(customerName, customerSpecificData);
-            loadQuantitiesAndGenerateInvoices(customerSpecificData);
-
-            saveButton.addEventListener('click', () => saveQuantities(customerId));
-            clearButton.addEventListener('click', () => clearQuantities(customerId, customerSpecificData));
-            
-            // ★★★ 編集と保存を統合したボタンのイベントリスナー ★★★
-            editPricesButton.addEventListener('click', async () => {
-                const isEditing = customerProductsTableBody.classList.contains('is-editing-prices');
-
-                if (isEditing) {
-                    // 保存モードの場合：保存処理を実行
-                    await savePricesToSheet(customerSpecificData);
-
-                    // 編集モードを終了
-                    customerProductsTableBody.classList.remove('is-editing-prices');
-                    editPricesButton.textContent = '売価を編集';
-                    editPricesButton.style.backgroundColor = '#2ecc71';
-
-                    // 表示を更新
-                    customerProductsTableBody.querySelectorAll('tr[data-product-id]').forEach(row => {
-                        const sellPrice = parseFloat(row.querySelector('.sell-price-input').value);
-                        const displaySpan = row.querySelector('.sell-price-display');
-                        displaySpan.textContent = (sellPrice && sellPrice > 0) ? sellPrice.toLocaleString() : '';
-                    });
-                } else {
-                    // 編集モードの場合：編集モードを開始
-                    customerProductsTableBody.classList.add('is-editing-prices');
-                    editPricesButton.textContent = '売価を保存';
-                    editPricesButton.style.backgroundColor = '#16a085'; // 保存ボタンの色
+        /**
+         * アプリケーション全体を管理するオブジェクト
+         */
+        const App = {
+            // 設定値
+            config: {
+                gasWebAppUrl: 'https://script.google.com/macros/s/AKfycbyxShi2b0-fiyGXRfK2Ro0PiHHOJoPg5VdUPXXFTJtxizsZvMX5qsybwbbBcIwOQLLzmg/exec',
+                selectors: {
+                    backLink: '.back-link',
+                    productsTableBody: '#customerProductsTable tbody',
+                    invoiceContainer: '#invoiceContainer',
+                    customerNameHeader: '#customerNameHeader',
+                    saveQuantitiesButton: '#saveQuantitiesButton',
+                    clearButton: '#clearButton',
+                    editProductsButton: '#editProductsButton',
+                    addProductButton: '#addProductButton',
+                    quantityInput: '.quantity-input',
+                    cancelEditButton: '#cancelEditButton',
                 }
-            });
+            },
+            // アプリケーションの状態
+            state: {
+                isDirty: false,
+                customerId: null,
+                customerName: '',
+                products: [],
+                departments: [],
+            },
+            // DOM要素
+            elements: {},
 
-            customerProductsTableBody.addEventListener('input', () => generateInvoices(customerSpecificData));
-            
-            // ★★★ Enterキーで次の数量入力欄に移動する機能 ★★★
-            customerProductsTableBody.addEventListener('keydown', (e) => {
-                if (e.key === 'Enter' && e.target.classList.contains('quantity-input')) {
-                    e.preventDefault(); // フォームの送信を防ぐ
-                    const allInputs = Array.from(customerProductsTableBody.querySelectorAll('.quantity-input'));
-                    const currentIndex = allInputs.indexOf(e.target);
-                    const nextIndex = currentIndex + 1;
-                    if (nextIndex < allInputs.length) {
-                        allInputs[nextIndex].focus();
-                        allInputs[nextIndex].select(); // 次の入力欄のテキストを選択状態にする
-                    } else {
-                        // 最後の入力欄ならフォーカスを外す
-                        e.target.blur();
-                    }
-                }
-            });
+            /**
+             * アプリケーションの初期化
+             */
+            async init() {
+                this.cacheDOMElements();
+                this.injectStyles();
+                this.setupLinks();
 
+                const params = new URLSearchParams(window.location.search);
+                this.state.customerId = parseInt(params.get('customerId'), 10);
 
-            function displayCustomerProducts(customerName, products) {
-                customerProductsTableBody.innerHTML = '';
-
-                if (products.length > 0) {
-                    products.forEach(product => {
-                        const row = document.createElement('tr');
-                        // データ属性としてproductIdだけでなく、行全体の情報を保持すると後で楽
-                        row.dataset.productId = product['商品コード'];
-                        
-                        const sellPrice = product['売価'];
-                        const sellPriceText = (sellPrice && sellPrice > 0) ? sellPrice.toLocaleString() : '';
-                        const sellPriceValue = (sellPrice && sellPrice > 0) ? sellPrice : '';
-
-                        const sellPriceDisplay = `<span class="sell-price-display">${sellPriceText}</span>`;
-                        const sellPriceInput = `<input type="number" class="sell-price-input" min="0" value="${sellPriceValue}">`;
-
-                        row.innerHTML = `<td class="product-name-cell">${product['商品名']}</td>
-                                         <td><input type="number" class="quantity-input" min="0" placeholder="0"></td>
-                                         <td class="price-cell">${(product['単価'] || 0).toLocaleString()}</td>
-                                         <td class="price-cell">${sellPriceDisplay}${sellPriceInput}</td>
-                                         <td class="col-department">${product['部門']}</td>`;
-                        customerProductsTableBody.appendChild(row);
-                    });
-                } else {
-                    customerProductsTableBody.innerHTML = '<tr><td colspan="5">この得意先に登録されている商品はありません。</td></tr>';
-                }
-            }
-
-            // ★★★ ここから一時保存関連の関数 ★★★
-
-            function saveQuantities(customerId) {
-                const quantities = {};
-                customerProductsTableBody.querySelectorAll('tr[data-product-id]').forEach(row => {
-                    const productId = row.dataset.productId;
-                    const quantity = row.querySelector('.quantity-input').value;
-                    const sellPrice = row.querySelector('.sell-price-input').value;
-
-                    if ((quantity && parseFloat(quantity) > 0) || (sellPrice && parseFloat(sellPrice) > 0)) {
-                        quantities[productId] = {
-                            quantity: quantity || '0',
-                            sellPrice: sellPrice || ''
-                        };
-                    }
-                });
-                localStorage.setItem(`savedQuantities_${customerId}`, JSON.stringify(quantities));
-                showToast('入力内容を保存しました。');
-            }
-
-            function loadQuantitiesAndGenerateInvoices(products) {
-                const savedData = JSON.parse(localStorage.getItem(`savedQuantities_${customerId}`) || '{}');
-                customerProductsTableBody.querySelectorAll('tr[data-product-id]').forEach(row => {
-                    const productId = row.dataset.productId;
-                    if (savedData[productId]) {
-                        // 数量が'0'の場合は、入力ボックスを空にする
-                        row.querySelector('.quantity-input').value = savedData[productId].quantity === '0' ? '' : savedData[productId].quantity;
-                        // 売価も復元
-                        if (savedData[productId].sellPrice) {
-                            row.querySelector('.sell-price-input').value = savedData[productId].sellPrice;
-                        }
-                    }
-                });
-                generateInvoices(products); // 数量を復元した後に伝票を生成
-            }
-
-            function clearQuantities(customerId, products) {
-                if (confirm('入力中の内容と一時保存したデータをすべてクリアします。よろしいですか？')) {
-                    localStorage.removeItem(`savedQuantities_${customerId}`);
-                    customerProductsTableBody.querySelectorAll('.quantity-input, .sell-price-input').forEach(input => {
-                        input.value = '';
-                    });
-                    displayCustomerProducts(customerName, products); // 売価を元の値に戻すため再描画
-                    generateInvoices(products); // 伝票をクリア
-                }
-            }
-
-            // ★★★ スプレッドシートに保存する関数 ★★★
-            async function savePricesToSheet(products) {
-                if (GAS_WEB_APP_URL === 'ここにGASのウェブアプリURLを貼り付け') {
-                    alert('エラー: Google Apps ScriptのウェブアプリURLが設定されていません。');
+                if (!this.state.customerId) {
+                    this.ui.showError('有効な得意先が選択されていません。');
                     return;
                 }
 
-                const updates = [];
-                customerProductsTableBody.querySelectorAll('tr[data-product-id]').forEach(row => {
-                    const productId = parseInt(row.dataset.productId, 10);
-                    const originalProduct = products.find(p => p['商品コード'] === productId);
-                    const newSellPriceInput = row.querySelector('.sell-price-input').value;
-                    
-                    // 元の売価（未設定ならnull）と新しい売価（空ならnull）を準備
-                    const originalSellPrice = originalProduct ? (originalProduct['売価'] || null) : null;
-                    const newSellPrice = newSellPriceInput !== '' ? parseFloat(newSellPriceInput) : null;
+                const masterData = await this.api.fetchMasterData();
+                this.state.products = masterData.filter(row => row['得意先コード'] === this.state.customerId);
 
-                    // 2つの値を比較して、変更があった場合のみ更新対象とする
-                    if (originalSellPrice !== newSellPrice) {
-                        updates.push({
-                            '商品コード': productId,
-                            '売価': newSellPrice
-                        });
+                if (this.state.products.length === 0) {
+                    this.ui.showError('指定された得意先のデータが見つかりません。');
+                    return;
+                }
+
+                this.state.customerName = this.state.products[0]['得意先名'];
+                this.state.departments = this.util.createDepartmentList(masterData);
+
+                this.elements.customerNameHeader.textContent = this.state.customerName;
+
+                this.ui.displayCustomerProducts();
+                this.ui.generateInvoices();
+                this.events.init();
+            },
+
+            /**
+             * 頻繁に使うDOM要素をキャッシュ
+             */
+            cacheDOMElements() {
+                for (const key in this.config.selectors) {
+                    this.elements[key] = document.querySelector(this.config.selectors[key]);
+                }
+            },
+
+            /**
+             * 動的なスタイルを注入
+             */
+            injectStyles() {
+                const style = document.createElement('style');
+                style.textContent = `.action-button { padding: 8px 12px; border: none; color: white; border-radius: 4px; cursor: pointer; }`;
+                document.head.appendChild(style);
+            },
+
+            /**
+             * リンクにキャッシュ対策を追加
+             */
+            setupLinks() {
+                if (this.elements.backLink) {
+                    this.elements.backLink.href = `index.html?_=${new Date().getTime()}`;
+                }
+            },
+
+            /**
+             * 状態の変更をセット
+             * @param {boolean} dirty - 変更があったかどうか
+             */
+            setDirty(dirty) {
+                this.state.isDirty = dirty;
+            },
+
+            // --- API通信関連 ---
+            api: {
+                async fetchMasterData() {
+                    try {
+                        const url = `${App.config.gasWebAppUrl}?_=${new Date().getTime()}`;
+                        const response = await fetch(url);
+                        if (!response.ok) throw new Error(`Network response was not ok. Status: ${response.status}`);
+                        const data = await response.json();
+                        if (data.error) throw new Error(data.error);
+                        return data;
+                    } catch (error) {
+                        console.error('Error fetching master data from GAS:', error);
+                        return [];
                     }
-                });
-
-                if (updates.length === 0) {
-                    alert('スプレッドシートの元の値から変更された売価はありません。');
-                    return;
-                }
-
-                if (!confirm(`${updates.length}件の売価を保存します。よろしいですか？`)) {
-                    return;
-                }
-
-                editPricesButton.disabled = true;
-                editPricesButton.textContent = '保存中...';
-
-                try {
-                    const response = await fetch(GAS_WEB_APP_URL, {
+                },
+                async postData(payload) {
+                    const response = await fetch(App.config.gasWebAppUrl, {
                         method: 'POST',
-                        headers: { 'Content-Type': 'text/plain;charset=utf-8' }, // GASの仕様上、text/plainで送る
-                        body: JSON.stringify({ updates: updates })
+                        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+                        body: JSON.stringify(payload)
                     });
                     const result = await response.json();
-                    showToast(result.message || '処理が完了しました。');
-                } catch (error) {
-                    alert('保存中にエラーが発生しました。\n' + error.message);
-                } finally {
-                    editPricesButton.disabled = false;
-                    // ボタンのテキストは、この関数の呼び出し元で「売価を編集」に戻される
+                    if (result.status === 'error') throw new Error(result.message);
+                    return result;
                 }
-            }
+            },
 
-            // ★★★ ここまで一時保存関連の関数 ★★★
+            // --- イベント関連 ---
+            events: {
+                init() {
+                    App.elements.saveQuantitiesButton.addEventListener('click', this.handleSaveQuantities);
+                    App.elements.clearButton.addEventListener('click', this.handleClearQuantities);
+                    App.elements.editProductsButton.addEventListener('click', () => this.handleToggleEditMode());
+                    App.elements.addProductButton.addEventListener('click', this.handleAddNewProduct);
+                    App.elements.cancelEditButton.addEventListener('click', () => this.handleCancelEdit());
+                    App.elements.productsTableBody.addEventListener('input', this.handleTableInput);
+                    App.elements.productsTableBody.addEventListener('focusin', this.handleFocusIn);
+                    App.elements.productsTableBody.addEventListener('keydown', this.handleKeyDown);
+                    window.addEventListener('beforeunload', this.handleBeforeUnload);
+                },
 
-
-            function generateInvoices(products) {
-                const allItems = collectAllItems(products);
-                const groupedByDept = groupItemsByDepartment(allItems);
-                renderInvoices(groupedByDept);
-            }
-
-            function collectAllItems(products) {
-                const items = [];
-                customerProductsTableBody.querySelectorAll('tr[data-product-id]').forEach(row => {
-                    const quantity = parseFloat(row.querySelector('.quantity-input').value);
-                    if (quantity > 0) {
-                        const productId = parseInt(row.dataset.productId, 10);
-                        const productData = products.find(p => p['商品コード'] === productId);
-                        const sellPriceInput = row.querySelector('.sell-price-input');
-                        const currentSellPrice = parseFloat(sellPriceInput.value);
-
-                        if (productData) {
-                            // 編集された売価を反映させる
-                            const itemData = { ...productData, quantity };
-                            if (!isNaN(currentSellPrice)) itemData['売価'] = currentSellPrice;
-                            items.push(itemData);
-                        }
-                    }
-                });
-                return items;
-            }
-
-            function groupItemsByDepartment(items) {
-                const grouped = {};
-                items.forEach(item => {
-                    const deptId = item['部門コード'];
-                    if (!grouped[deptId]) {
-                        grouped[deptId] = { name: item['部門'], items: [] };
-                    }
-                    grouped[deptId].items.push(item);
-                });
-                return grouped;
-            }
-
-            function renderInvoices(groupedData) {
-                invoiceContainer.innerHTML = '';
-                for (const deptId in groupedData) {
-                    const dept = groupedData[deptId];
-                    const departmentHeader = document.createElement('h3');
-                    departmentHeader.textContent = dept.name;
-                    invoiceContainer.appendChild(departmentHeader);
-                    const table = document.createElement('table');
-                    table.innerHTML = `<thead><tr><th class="invoice-col-name">品名</th><th class="invoice-col-qty">数量</th><th class="invoice-col-cost-price">原単価</th><th class="invoice-col-cost-sub">原価金額</th><th class="invoice-col-price">売単価</th><th class="invoice-col-sub">売価金額</th></tr></thead>`;
-                    const tbody = document.createElement('tbody');
-                    let itemCounter = 0;
-                    let runningSubtotal = 0;
-                    let runningCostSubtotal = 0;
-
-                    dept.items.forEach((item, index) => {
-                        itemCounter++;
-                        const itemSubtotal = item.quantity * item['売価']; // 売価金額 = 数量 * 売価
-                        const costSubtotal = item.quantity * (item['単価'] || 0); // 原価金額 = 数量 * 単価(原価)
-                        runningSubtotal += itemSubtotal;
-                        runningCostSubtotal += costSubtotal;
-
-                        const row = document.createElement('tr');
-                        const displayCost = item['単価'] ? item['単価'].toLocaleString() : ''; // 原単価は '単価'
-                        const displayCostSubtotal = (item['単価'] && item['単価'] > 0) ? costSubtotal.toLocaleString() : ''; // 原価金額
-                        const displaySellPrice = (item['売価'] && item['売価'] > 0) ? item['売価'].toLocaleString() : ''; // 売単価
-
-                        row.appendChild(createCell(item['商品名'], 'product-name-cell'));
-                        row.appendChild(createCell(item.quantity, 'price-cell'));
-                        row.appendChild(createCell(displayCost, 'price-cell')); // 原単価
-                        row.appendChild(createCell(displayCostSubtotal, 'cost-subtotal')); // 原価金額
-                        row.appendChild(createCell(displaySellPrice, 'price-cell')); // 売単価
-                        row.appendChild(createCell(itemSubtotal.toLocaleString(), 'subtotal'));
-                        tbody.appendChild(row);
-
-                        const isLastItem = index === dept.items.length - 1;
-                        if (itemCounter % 6 === 0 || isLastItem) {
-                            const label = '合計';
-                            const subtotalRow = document.createElement('tr');
-                            subtotalRow.className = 'subtotal-row';
-
-                            const labelCell1 = createCell(label, 'total-label');
-                            labelCell1.colSpan = 3;
-                            subtotalRow.appendChild(labelCell1);
-                            subtotalRow.appendChild(createCell(runningCostSubtotal.toLocaleString(), 'total-value'));
-                            const labelCell2 = createCell(label, 'total-label');
-                            subtotalRow.appendChild(labelCell2);
-                            subtotalRow.appendChild(createCell(runningSubtotal.toLocaleString(), 'total-value'));
-
-                            tbody.appendChild(subtotalRow);
-                            runningSubtotal = 0;
-                            runningCostSubtotal = 0;
+                async handleSaveQuantities() {
+                    const updates = [];
+                    App.elements.productsTableBody.querySelectorAll('tr[data-product-id]').forEach(row => {
+                        const productId = row.dataset.productId;
+                        if (productId.startsWith('new_')) return;
+                        const quantityInput = row.querySelector(App.config.selectors.quantityInput).value;
+                        const quantity = parseFloat(quantityInput);
+                        if (quantityInput !== '' && !isNaN(quantity)) {
+                            updates.push({ '商品コード': parseInt(productId, 10), '数量': quantity });
                         }
                     });
-                    table.appendChild(tbody);
-                    invoiceContainer.appendChild(table);
+
+                    if (updates.length === 0) {
+                        App.ui.showToast('保存する数量が入力されていません。');
+                        return;
+                    }
+                    if (!confirm('入力した数量を保存します。よろしいですか？')) return;
+
+                    App.ui.toggleButtonState(App.elements.saveQuantitiesButton, true, '保存中...');
+                    try {
+                        await App.api.postData({ updates });
+                        App.ui.showToast('数量を保存しました。');
+                        App.setDirty(false);
+                    } catch (error) {
+                        alert('数量の保存中にエラーが発生しました。\n' + error.message);
+                    } finally {
+                        App.ui.toggleButtonState(App.elements.saveQuantitiesButton, false, '数量を保存');
+                    }
+                },
+
+                async handleClearQuantities() {
+                    if (!confirm('保存されている数量をすべてクリアします。よろしいですか？')) return;
+
+                    const updates = [];
+                    App.elements.productsTableBody.querySelectorAll('tr[data-product-id]').forEach(row => {
+                        const productId = row.dataset.productId;
+                        const originalProduct = App.state.products.find(p => p['商品コード'] == productId);
+                        const originalQty = (originalProduct && originalProduct['数量']) ? parseFloat(originalProduct['数量']) : 0;
+                        const inputQtyText = row.querySelector(App.config.selectors.quantityInput).value;
+                        const inputQty = inputQtyText !== '' ? parseFloat(inputQtyText) : 0;
+
+                        if (!isNaN(originalQty) && originalQty !== 0 || !isNaN(inputQty) && inputQty !== 0) {
+                            updates.push({ '商品コード': parseInt(productId, 10), '数量': 0 });
+                        }
+                    });
+
+                    if (updates.length === 0) {
+                        App.ui.showToast('クリア対象の商品がありません。');
+                        return;
+                    }
+
+                    App.ui.toggleButtonState(App.elements.clearButton, true, 'クリア中...');
+                    try {
+                        await App.api.postData({ updates });
+                        App.elements.productsTableBody.querySelectorAll(App.config.selectors.quantityInput).forEach(input => {
+                            input.value = '';
+                        });
+                        // ★★★ stateの数量もクリアして、isDirtyの判定を正しくする ★★★
+                        updates.forEach(update => {
+                            const product = App.state.products.find(p => p['商品コード'] === update['商品コード']);
+                            if (product) product['数量'] = 0;
+                        });
+
+                        App.ui.generateInvoices();
+                        App.setDirty(false);
+                        App.ui.showToast('数量をクリアしました。');
+                    } catch (error) {
+                        alert('数量のクリア中にエラーが発生しました。\n' + error.message);
+                    } finally {
+                        App.ui.toggleButtonState(App.elements.clearButton, false, '数量をクリア');
+                    }
+                },
+
+                async handleToggleEditMode() {
+                    const isEditing = App.elements.productsTableBody.classList.contains('is-editing'); // 'is-editing' を使用
+                    if (isEditing) {
+                        const wasSaved = await App.events.handleSaveProducts();
+                        if (wasSaved) {
+                            App.setDirty(false);
+                            App.ui.toggleEditMode(false);
+                            App.ui.showToast('保存しました。ページを更新します...', 2000);
+                            setTimeout(() => window.location.reload(), 2000);
+                        }
+                    } else {
+                        App.setDirty(true);
+                        App.ui.toggleEditMode(true);
+                    }
+                },
+
+                async handleSaveProducts() {
+                    const updates = [];
+                    const additions = [];
+                    App.elements.productsTableBody.querySelectorAll('tr[data-product-id]').forEach(row => {
+                        const productId = row.dataset.productId;
+                        const isNew = row.classList.contains('new-product-row');
+                        const newName = row.querySelector('.name-input').value;
+                        const newUnitPrice = row.querySelector('.unit-price-input').value;
+                        const newSellPrice = row.querySelector('.sell-price-input').value;
+                        const deptSelect = row.querySelector('.dept-input');
+                        const newDeptCode = deptSelect.value;
+                        const newDeptName = deptSelect.selectedIndex > -1 ? deptSelect.options[deptSelect.selectedIndex].text : '';
+
+                        if (isNew) {
+                            if (newName) {
+                                additions.push({
+                                    '得意先コード': App.state.customerId, '得意先名': App.state.customerName, '商品名': newName,
+                                    '単価': newUnitPrice !== '' ? parseFloat(newUnitPrice) : null,
+                                    '売価': newSellPrice !== '' ? parseFloat(newSellPrice) : null,
+                                    '部門コード': newDeptCode, '部門': newDeptName
+                                });
+                            }
+                        } else {
+                            const originalProduct = App.state.products.find(p => p['商品コード'] == productId);
+                            if (!originalProduct) return;
+                            const changedData = { '商品コード': parseInt(productId, 10) };
+                            let hasChanged = false;
+                            const originalSellPrice = originalProduct['売価'] || null;
+                            const parsedNewSellPrice = newSellPrice !== '' ? parseFloat(newSellPrice) : null;
+                            if (parsedNewSellPrice !== originalSellPrice) { changedData['売価'] = parsedNewSellPrice; hasChanged = true; }
+                            const originalDeptCode = originalProduct['部門コード'] || null;
+                            if (newDeptCode != (originalDeptCode ?? '')) { changedData['部門コード'] = newDeptCode; changedData['部門'] = newDeptName; hasChanged = true; }
+
+                            if (hasChanged) updates.push(changedData);
+                        }
+                    });
+
+                    if (updates.length === 0 && additions.length === 0) {
+                        App.ui.showToast('変更された項目はありません。');
+                        return false;
+                    }
+                    if (!confirm(`${updates.length}件の更新、${additions.length}件の新規追加を保存します。よろしいですか？`)) return false;
+
+                    const button = App.elements.editProductsButton;
+                    App.ui.toggleButtonState(button, true, '保存中...');
+                    try {
+                        await App.api.postData({ updates, additions });
+                        return true;
+                    } catch (error) {
+                        alert('保存中にエラーが発生しました。\n' + error.message);
+                        return false;
+                    } finally {
+                        App.ui.toggleButtonState(button, false, '変更を保存');
+                    }
+                },
+
+                handleCancelEdit(mode) {
+                    if (confirm('編集中の内容は破棄されます。よろしいですか？')) {
+                        App.ui.toggleEditMode(null); // 全ての編集モードを終了
+                        App.ui.displayCustomerProducts(); // テーブルを元の状態に再描画
+                        App.ui.generateInvoices(); // 伝票も再描画
+                        App.setDirty(false); // 変更フラグをリセット
+                        App.ui.showToast('編集をキャンセルしました。');
+                    }
+                },
+
+                handleAddNewProduct() {
+                    App.ui.appendNewProductRow();
+                    App.setDirty(true);
+                },
+
+                handleTableInput() {
+                    App.ui.generateInvoices();
+                    App.setDirty(true);
+                },
+
+                handleFocusIn(e) {
+                    if (e.target.classList.contains('quantity-input')) {
+                        e.target.select();
+                    }
+                },
+
+                handleKeyDown(e) {
+                    if (e.key === 'Enter' && e.target.classList.contains('quantity-input')) {
+                        e.preventDefault();
+                        const allInputs = Array.from(App.elements.productsTableBody.querySelectorAll(App.config.selectors.quantityInput));
+                        const currentIndex = allInputs.indexOf(e.target);
+                        const nextIndex = currentIndex + 1;
+                        if (nextIndex < allInputs.length) {
+                            allInputs[nextIndex].focus();
+                            allInputs[nextIndex].select();
+                        } else {
+                            e.target.blur();
+                        }
+                    }
+                },
+
+                handleBeforeUnload(e) {
+                    if (App.state.isDirty) {
+                        e.preventDefault();
+                        e.returnValue = '';
+                    }
+                }
+            },
+
+            // --- UI関連 ---
+            ui: {
+                showError(message) {
+                    document.body.innerHTML = `<div class="container"><h1>エラー</h1><p>${message}</p><a href="index.html">得意先一覧に戻ってください。</a></div>`;
+                },
+
+                showToast(message, duration = 2000) {
+                    const toast = document.createElement('div');
+                    toast.className = 'toast-notification';
+                    toast.textContent = message;
+                    document.body.appendChild(toast);
+                    setTimeout(() => toast.classList.add('show'), 100);
+                    setTimeout(() => {
+                        toast.classList.remove('show');
+                        toast.addEventListener('transitionend', () => toast.remove());
+                    }, duration);
+                },
+
+                toggleButtonState(button, isDisabled, text) {
+                    button.disabled = isDisabled;
+                    button.textContent = text;
+                },
+
+                toggleEditMode(isEditing) {
+                    // App.elements.productsTableBody.classList.remove('is-editing'); // 既存のクラスを削除
+                    
+                    if (isEditing) {
+                        App.elements.productsTableBody.classList.add('is-editing'); // 'is-editing' を追加
+                        this.toggleButtonState(App.elements.editProductsButton, false, '変更を保存');
+                        App.elements.editProductsButton.style.backgroundColor = '#16a085';
+                        App.elements.addProductButton.style.display = 'inline-block';
+                        App.elements.cancelEditButton.style.display = 'inline-block';
+                    } else {
+                        this.toggleButtonState(App.elements.editProductsButton, false, '商品を編集');
+                        App.elements.editProductsButton.style.backgroundColor = '#2ecc71';
+                        App.elements.productsTableBody.classList.remove('is-editing'); // 'is-editing' を削除
+                        App.elements.addProductButton.style.display = 'none';
+                        App.elements.cancelEditButton.style.display = 'none';
+                    }
+                },
+
+                displayCustomerProducts() {
+                    const { productsTableBody } = App.elements;
+                    productsTableBody.innerHTML = '';
+                    if (App.state.products.length > 0) {
+                        App.state.products.forEach(product => {
+                            const row = this.createProductRow(product);
+                            productsTableBody.appendChild(row);
+                        });
+                    } else {
+                        productsTableBody.innerHTML = '<tr><td colspan="5">この得意先に登録されている商品はありません。</td></tr>';
+                    }
+                },
+
+                createProductRow(product) {
+                    const row = document.createElement('tr');
+                    row.dataset.productId = product['商品コード'];
+                    const unitPrice = product['単価'] || '';
+                    const sellPrice = product['売価'] || '';
+                    const deptSelect = document.createElement('select');
+                    deptSelect.className = 'editable-input dept-input';
+
+                    // ★★★ 先頭に空白の選択肢を追加 ★★★
+                    const blankOption = document.createElement('option');
+                    blankOption.value = '';
+                    blankOption.textContent = ''; // 表示は空白
+                    deptSelect.appendChild(blankOption);
+
+                    App.state.departments.forEach(dept => {
+                        const option = document.createElement('option');
+                        option.value = dept.id;
+                        option.textContent = dept.name;
+                        if (dept.id == product['部門コード']) option.selected = true; // 型が違う可能性を考慮して == で比較
+                        deptSelect.appendChild(option);
+                    });
+                    row.innerHTML = `<td class="product-name-cell"><span class="display-span name-display">${product['商品名']}</span><input type="text" class="editable-input name-input" value="${product['商品名']}"></td>
+                                     <td><input type="number" class="quantity-input" placeholder="0" value="${product['数量'] || ''}"></td>
+                                     <td class="price-cell"><span class="display-span unit-price-display">${unitPrice ? unitPrice.toLocaleString() : ''}</span><input type="number" class="editable-input unit-price-input" value="${unitPrice}"></td>
+                                     <td class="price-cell"><span class="display-span sell-price-display">${sellPrice ? sellPrice.toLocaleString() : ''}</span><input type="number" class="editable-input sell-price-input" value="${sellPrice}"></td>
+                                     <td class="col-department"><span class="display-span dept-display">${product['部門'] || ''}</span></td>`;
+                    row.cells[4].appendChild(deptSelect);
+                    return row;
+                },
+
+                appendNewProductRow() {
+                    // ★★★ 新規行のデフォルト部門を空白にする ★★★
+                    const newProduct = { '商品コード': `new_${Date.now()}`, '商品名': '', '単価': '', '売価': '', '部門コード': '' };
+                    const newRow = this.createProductRow(newProduct); // 'master' 引数を削除
+                    newRow.classList.add('new-product-row', 'is-editing');
+                    App.elements.productsTableBody.appendChild(newRow);
+                    newRow.querySelector('.name-input').focus();
+                },
+
+                generateInvoices() {
+                    const allItems = this.collectAllItems();
+                    const groupedByDept = this.groupItemsByDepartment(allItems);
+                    this.renderInvoices(groupedByDept);
+                },
+
+                collectAllItems() {
+                    const items = [];
+                    App.elements.productsTableBody.querySelectorAll('tr[data-product-id]').forEach(row => {
+                        const quantity = parseFloat(row.querySelector(App.config.selectors.quantityInput).value);
+                        const productId = row.dataset.productId;
+                        const isNew = productId.startsWith('new_');
+                        if (quantity !== 0 && !isNaN(quantity) && !isNew) {
+                            const numericProductId = parseInt(productId, 10);
+                            const productData = App.state.products.find(p => p['商品コード'] === numericProductId);
+                            if (productData) {
+                                const itemData = { ...productData, quantity };
+                                const currentUnitPrice = parseFloat(row.querySelector('.unit-price-input').value);
+                                const currentSellPrice = parseFloat(row.querySelector('.sell-price-input').value);
+                                const deptSelect = row.querySelector('.dept-input');
+                                const currentDeptCode = deptSelect.value;
+                                const currentDeptName = deptSelect.selectedIndex > -1 ? deptSelect.options[deptSelect.selectedIndex].text : (productData['部門'] || '');
+                                if (!isNaN(currentUnitPrice)) itemData['単価'] = currentUnitPrice;
+                                if (!isNaN(currentSellPrice)) itemData['売価'] = currentSellPrice;
+                                itemData['部門コード'] = currentDeptCode;
+                                itemData['部門'] = currentDeptName;
+                                items.push(itemData);
+                            }
+                        }
+                    });
+                    return items;
+                },
+
+                groupItemsByDepartment(items) {
+                    return items.reduce((grouped, item) => {
+                        const deptId = item['部門コード'] || 'unknown'; // ★★★ 部門コードがない場合に備える
+                        if (!grouped[deptId]) {
+                            grouped[deptId] = { name: item['部門'], items: [] };
+                        }
+                        grouped[deptId].items.push(item);
+                        return grouped;
+                    }, {});
+                },
+
+                renderInvoices(groupedData) {
+                    App.elements.invoiceContainer.innerHTML = '';
+                    let grandTotalCost = 0;
+                    for (const deptId in groupedData) {
+                        const dept = groupedData[deptId];
+                        const departmentHeader = document.createElement('h3');
+                        departmentHeader.textContent = dept.name;
+                        App.elements.invoiceContainer.appendChild(departmentHeader);
+                        const table = document.createElement('table');
+                        table.innerHTML = `<thead><tr><th class="invoice-col-name">品名</th><th class="invoice-col-qty">数量</th><th class="invoice-col-cost-price">原単価</th><th class="invoice-col-cost-sub">原価金額</th><th class="invoice-col-price">売単価</th><th class="invoice-col-sub">売価金額</th></tr></thead>`;
+                        const tbody = document.createElement('tbody');
+                        let itemCounter = 0;
+                        let runningSubtotal = 0;
+                        let runningCostSubtotal = 0;
+                        dept.items.forEach((item, index) => {
+                            itemCounter++;
+                            const itemSubtotal = item.quantity * item['売価'];
+                            const costSubtotal = item.quantity * (item['単価'] || 0);
+                            runningSubtotal += itemSubtotal;
+                            runningCostSubtotal += costSubtotal;
+                            grandTotalCost += costSubtotal;
+                            const row = document.createElement('tr');
+                            const displayCost = item['単価'] ? App.util.formatNumber(item['単価']) : '';
+                            const displayCostSubtotal = (item['単価'] && item['単価'] > 0) ? App.util.formatNumber(costSubtotal) : '';
+                            const displaySellPrice = (item['売価'] && item['売価'] > 0) ? App.util.formatNumber(item['売価']) : '';
+                            row.appendChild(App.util.createCell(item['商品名'], 'product-name-cell'));
+                            row.appendChild(App.util.createCell(App.util.formatNumber(item.quantity), 'price-cell'));
+                            row.appendChild(App.util.createCell(displayCost, 'price-cell'));
+                            row.appendChild(App.util.createCell(displayCostSubtotal, 'cost-subtotal'));
+                            row.appendChild(App.util.createCell(displaySellPrice, 'price-cell'));
+                            row.appendChild(App.util.createCell(App.util.formatNumber(itemSubtotal), 'subtotal'));
+                            tbody.appendChild(row);
+                            const isLastItem = index === dept.items.length - 1;
+                            if (itemCounter % 6 === 0 || isLastItem) {
+                                const subtotalRow = document.createElement('tr');
+                                subtotalRow.className = 'subtotal-row';
+                                const labelCell1 = App.util.createCell('合計', 'total-label');
+                                labelCell1.colSpan = 3;
+                                subtotalRow.appendChild(labelCell1);
+                                subtotalRow.appendChild(App.util.createCell(App.util.formatNumber(runningCostSubtotal), 'total-value'));
+                                subtotalRow.appendChild(App.util.createCell('合計', 'total-label'));
+                                subtotalRow.appendChild(App.util.createCell(App.util.formatNumber(runningSubtotal), 'total-value'));
+                                tbody.appendChild(subtotalRow);
+                                runningSubtotal = 0;
+                                runningCostSubtotal = 0;
+                            }
+                        });
+                        table.appendChild(tbody);
+                        App.elements.invoiceContainer.appendChild(table);
+                    }
+                    if (Object.keys(groupedData).length > 0) {
+                        const grandTotalHeader = document.createElement('h3');
+                        grandTotalHeader.textContent = '総合計';
+                        grandTotalHeader.style.cssText = 'border-top: 2px solid #3498db; padding-top: 15px; margin-top: 30px;';
+                        const table = document.createElement('table');
+                        const tbody = document.createElement('tbody');
+                        const totalRow = document.createElement('tr');
+                        totalRow.className = 'subtotal-row';
+                        totalRow.innerHTML = `<td class="total-label" colspan="5">原価金額 総合計</td><td class="total-value">${App.util.formatNumber(grandTotalCost)}</td>`;
+                        tbody.appendChild(totalRow);
+                        table.appendChild(tbody);
+                        App.elements.invoiceContainer.appendChild(grandTotalHeader);
+                        App.elements.invoiceContainer.appendChild(table);
+                    }
+                }
+            },
+
+            // --- ユーティリティ関数 ---
+            util: {
+                createCell(text, className) {
+                    const cell = document.createElement('td');
+                    cell.innerHTML = text;
+                    if (className) cell.className = className;
+                    return cell;
+                },
+
+                formatNumber(num) {
+                    if (typeof num !== 'number' || isNaN(num)) return '';
+                    if (num < 0) {
+                        return `<span class="minus-symbol">▲</span>${Math.abs(num).toLocaleString()}`;
+                    }
+                    return num.toLocaleString();
+                },
+
+                createDepartmentList(masterData) {
+                    const deptMap = new Map();
+                    masterData.forEach(row => {
+                        if (row['部門コード'] && !deptMap.has(row['部門コード'])) {
+                            deptMap.set(row['部門コード'], row['部門']);
+                        }
+                    });
+                    return Array.from(deptMap, ([id, name]) => ({ id, name }));
                 }
             }
-        });
-        // ★★★ ここまで修正 ★★★
+        };
+
+        document.addEventListener('DOMContentLoaded', () => App.init());
     </script>
 </body>
 </html>
