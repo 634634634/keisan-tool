@@ -25,50 +25,25 @@
     </div>
 
     <script>
-        // スプレッドシートの公開URLを貼り付けます (1つだけ)
-        const MASTER_DATA_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRpGhiBjllLFan-dzUY5k9Bog2RKMGdcEph5E4itfZaOVQ1dEZQIqNM6_vGG5OsUyvwfeC4nDG-64aa/pub?gid=0&single=true&output=csv';
+        // Google Apps ScriptのウェブアプリURL
+        const GAS_WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbyxShi2b0-fiyGXRfK2Ro0PiHHOJoPg5VdUPXXFTJtxizsZvMX5qsybwbbBcIwOQLLzmg/exec';
 
-        // CSVデータをJSONオブジェクトの配列に変換する非同期関数
-        async function fetchCsvAsJson(url) {
+        // GASからマスターデータをJSONとして取得する関数
+        async function fetchMasterData() {
             try {
+                // キャッシュを避けるためにタイムスタンプを追加
+                const url = `${GAS_WEB_APP_URL}?_=${new Date().getTime()}`;
                 const response = await fetch(url);
-                if (!response.ok) throw new Error('Network response was not ok.');
-                const csvText = await response.text();
-                const lines = csvText.trim().split(/\r\n|\n/);
-                
-                // CSVの1行をパースする関数（引用符対応）
-                const parseCsvRow = (row) => {
-                    const result = [];
-                    let current = '';
-                    let inQuotes = false;
-                    for (let i = 0; i < row.length; i++) {
-                        const char = row[i];
-                        if (char === '"') {
-                            inQuotes = !inQuotes;
-                        } else if (char === ',' && !inQuotes) {
-                            result.push(current);
-                            current = '';
-                        } else {
-                            current += char;
-                        }
-                    }
-                    result.push(current);
-                    return result.map(val => val.replace(/^"|"$/g, '').trim());
-                };
-
-                const headers = parseCsvRow(lines[0]);
-                return lines.slice(1).map(line => {
-                    const values = parseCsvRow(line);
-                    return headers.reduce((obj, header, index) => {
-                        const rawValue = values[index];
-                        // 値からカンマを削除してから数値に変換
-                        const cleanValue = typeof rawValue === 'string' ? rawValue.replace(/,/g, '') : rawValue;
-                        obj[header] = isNaN(cleanValue) || cleanValue === '' ? rawValue : parseFloat(cleanValue);
-                        return obj;
-                    }, {});
-                });
+                if (!response.ok) {
+                    throw new Error(`Network response was not ok. Status: ${response.status}`);
+                }
+                const data = await response.json();
+                if (data.error) {
+                    throw new Error(data.error);
+                }
+                return data;
             } catch (error) {
-                console.error('Error fetching or parsing CSV:', error);
+                console.error('Error fetching master data from GAS:', error);
                 return [];
             }
         }
@@ -109,7 +84,7 @@
 
         async function initializePage() {
             try {
-                const masterData = await fetchCsvAsJson(MASTER_DATA_URL);
+                const masterData = await fetchMasterData();
                 const customers = createCustomerList(masterData);
                 renderCustomerList(customers);
             } catch (error) {
