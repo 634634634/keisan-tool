@@ -14,7 +14,7 @@
         h2 { font-size: 1.1em; margin-top: 20px; border-bottom-style: dashed; }
         h3 { font-size: 1.2em; margin-top: 20px; border-bottom: 1px solid #ccc; color: #34495e; }
         .container { background-color: #fff; padding: 15px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); margin-bottom: 20px; }
-        table { width: 100%; border-collapse: collapse; margin-bottom: 20px; table-layout: fixed; }
+        table { width: 100%; border-collapse: collapse; margin-bottom: 20px; table-layout: fixed; font-size: 1em; }
         /* ★★★ 得意先名（サブタイトル）のスタイル ★★★ */
         .customer-name-subtitle {
             font-size: 1.2em;
@@ -23,7 +23,10 @@
         }
         th, td { border: 1px solid #ddd; padding: 3px 4px; text-align: left; vertical-align: middle; word-wrap: break-word; } /* ★★★ 左右の余白を調整 ★★★ */
         th { background-color: #f2f2f2; }
-        input { box-sizing: border-box; width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px; font-size: 1em; text-align: right; }
+        input, select {
+            box-sizing: border-box; width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px; font-size: 1em;
+        }
+        input { text-align: right; }
         .subtotal, .total-value, .price-cell, .cost-subtotal {
             text-align: right;
             font-size: 0.9em; /* ★★★ 数字のフォントを少し小さく ★★★ */
@@ -125,7 +128,6 @@
             <p>数量を入力すると、下の伝票に自動で反映されます。</p>
             <!-- ★★★ 一時保存ボタンを追加 ★★★ -->
             <div style="margin-bottom: 15px; display: flex; gap: 10px; flex-wrap: wrap;">
-                <button id="saveQuantitiesButton" class="action-button" style="background-color: #3498db;">数量を保存</button>
                 <button id="clearButton" class="action-button" style="background-color: #e74c3c;">数量をクリア</button>
                 <button id="editProductsButton" class="action-button" style="background-color: #2ecc71;">商品を編集</button>
                 <button id="addProductButton" class="action-button" style="background-color: #9b59b6; display: none;">商品を追加</button>
@@ -159,13 +161,18 @@
                     productsTableBody: '#customerProductsTable tbody',
                     invoiceContainer: '#invoiceContainer',
                     customerNameHeader: '#customerNameHeader',
-                    saveQuantitiesButton: '#saveQuantitiesButton',
                     clearButton: '#clearButton',
                     editProductsButton: '#editProductsButton',
                     addProductButton: '#addProductButton',
                     quantityInput: '.quantity-input',
                     cancelEditButton: '#cancelEditButton',
                 }
+            },
+            // 定数
+            constants: {
+                EDIT_MODE_CLASS: 'is-editing',
+                NEW_PRODUCT_ROW_CLASS: 'new-product-row',
+                UNKNOWN_DEPT_ID: 'unknown'
             },
             // アプリケーションの状態
             state: {
@@ -277,7 +284,6 @@
             // --- イベント関連 ---
             events: {
                 init() {
-                    App.elements.saveQuantitiesButton.addEventListener('click', this.handleSaveQuantities);
                     App.elements.clearButton.addEventListener('click', this.handleClearQuantities);
                     App.elements.editProductsButton.addEventListener('click', () => this.handleToggleEditMode());
                     App.elements.addProductButton.addEventListener('click', this.handleAddNewProduct);
@@ -285,37 +291,7 @@
                     App.elements.productsTableBody.addEventListener('input', this.handleTableInput);
                     App.elements.productsTableBody.addEventListener('focusin', this.handleFocusIn);
                     App.elements.productsTableBody.addEventListener('keydown', this.handleKeyDown);
-                    window.addEventListener('beforeunload', this.handleBeforeUnload);
-                },
-
-                async handleSaveQuantities() {
-                    const updates = [];
-                    App.elements.productsTableBody.querySelectorAll('tr[data-product-id]').forEach(row => {
-                        const productId = row.dataset.productId;
-                        if (productId.startsWith('new_')) return;
-                        const quantityInput = row.querySelector(App.config.selectors.quantityInput).value;
-                        const quantity = parseFloat(quantityInput);
-                        if (quantityInput !== '' && !isNaN(quantity)) {
-                            updates.push({ '商品コード': parseInt(productId, 10), '数量': quantity });
-                        }
-                    });
-
-                    if (updates.length === 0) {
-                        App.ui.showToast('保存する数量が入力されていません。');
-                        return;
-                    }
-                    if (!confirm('入力した数量を保存します。よろしいですか？')) return;
-
-                    App.ui.toggleButtonState(App.elements.saveQuantitiesButton, true, '保存中...');
-                    try {
-                        await App.api.postData({ updates });
-                        App.ui.showToast('数量を保存しました。');
-                        App.setDirty(false);
-                    } catch (error) {
-                        alert('数量の保存中にエラーが発生しました。\n' + error.message);
-                    } finally {
-                        App.ui.toggleButtonState(App.elements.saveQuantitiesButton, false, '数量を保存');
-                    }
+                    document.addEventListener('visibilitychange', this.handleVisibilityChange); // ★★★ 自動保存イベントを追加
                 },
 
                 async handleClearQuantities() {
@@ -362,7 +338,7 @@
                 },
 
                 async handleToggleEditMode() {
-                    const isEditing = App.elements.productsTableBody.classList.contains('is-editing'); // 'is-editing' を使用
+                    const isEditing = App.elements.productsTableBody.classList.contains(App.constants.EDIT_MODE_CLASS);
                     if (isEditing) {
                         const wasSaved = await App.events.handleSaveProducts();
                         if (wasSaved) {
@@ -382,7 +358,7 @@
                     const additions = [];
                     App.elements.productsTableBody.querySelectorAll('tr[data-product-id]').forEach(row => {
                         const productId = row.dataset.productId;
-                        const isNew = row.classList.contains('new-product-row');
+                        const isNew = row.classList.contains(App.constants.NEW_PRODUCT_ROW_CLASS);
                         const newName = row.querySelector('.name-input').value;
                         const newUnitPrice = row.querySelector('.unit-price-input').value;
                         const newSellPrice = row.querySelector('.sell-price-input').value;
@@ -433,9 +409,9 @@
                     }
                 },
 
-                handleCancelEdit(mode) {
+                handleCancelEdit() {
                     if (confirm('編集中の内容は破棄されます。よろしいですか？')) {
-                        App.ui.toggleEditMode(null); // 全ての編集モードを終了
+                        App.ui.toggleEditMode(false);
                         App.ui.displayCustomerProducts(); // テーブルを元の状態に再描画
                         App.ui.generateInvoices(); // 伝票も再描画
                         App.setDirty(false); // 変更フラグをリセット
@@ -474,10 +450,31 @@
                     }
                 },
 
-                handleBeforeUnload(e) {
-                    if (App.state.isDirty) {
-                        e.preventDefault();
-                        e.returnValue = '';
+                handleVisibilityChange() {
+                    // ページが非表示になり、かつ変更がある場合に自動保存を実行
+                    if (document.visibilityState === 'hidden' && App.state.isDirty) {
+                        const updates = [];
+                        App.elements.productsTableBody.querySelectorAll('tr[data-product-id]').forEach(row => {
+                            const productId = row.dataset.productId;
+                            if (productId.startsWith('new_')) return;
+
+                            const quantityInput = row.querySelector(App.config.selectors.quantityInput).value;
+                            const quantity = parseFloat(quantityInput);
+                            if (quantityInput !== '' && !isNaN(quantity)) {
+                                updates.push({ '商品コード': parseInt(productId, 10), '数量': quantity });
+                            }
+                        });
+
+                        if (updates.length > 0) {
+                            // ページを離れる直前のデータ送信のため、完了を待たない
+                            try {
+                                App.api.postData({ updates });
+                                App.setDirty(false); // 送信試行後は変更フラグをリセット
+                            } catch (error) {
+                                // このエラーはユーザーには通知しない（ページ離脱中のため）
+                                console.error('Auto-save failed:', error);
+                            }
+                        }
                     }
                 }
             },
@@ -569,8 +566,8 @@
                 appendNewProductRow() {
                     // ★★★ 新規行のデフォルト部門を空白にする ★★★
                     const newProduct = { '商品コード': `new_${Date.now()}`, '商品名': '', '単価': '', '売価': '', '部門コード': '' };
-                    const newRow = this.createProductRow(newProduct); // 'master' 引数を削除
-                    newRow.classList.add('new-product-row', 'is-editing');
+                    const newRow = this.createProductRow(newProduct);
+                    newRow.classList.add(App.constants.NEW_PRODUCT_ROW_CLASS, App.constants.EDIT_MODE_CLASS);
                     App.elements.productsTableBody.appendChild(newRow);
                     newRow.querySelector('.name-input').focus();
                 },
@@ -586,7 +583,7 @@
                     App.elements.productsTableBody.querySelectorAll('tr[data-product-id]').forEach(row => {
                         const quantity = parseFloat(row.querySelector(App.config.selectors.quantityInput).value);
                         const productId = row.dataset.productId;
-                        const isNew = productId.startsWith('new_');
+                        const isNew = row.classList.contains(App.constants.NEW_PRODUCT_ROW_CLASS);
                         if (quantity !== 0 && !isNaN(quantity) && !isNew) {
                             const numericProductId = parseInt(productId, 10);
                             const productData = App.state.products.find(p => p['商品コード'] === numericProductId);
@@ -610,7 +607,7 @@
 
                 groupItemsByDepartment(items) {
                     return items.reduce((grouped, item) => {
-                        const deptId = item['部門コード'] || 'unknown'; // ★★★ 部門コードがない場合に備える
+                        const deptId = item['部門コード'] || App.constants.UNKNOWN_DEPT_ID;
                         if (!grouped[deptId]) {
                             grouped[deptId] = { name: item['部門'], items: [] };
                         }
