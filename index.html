@@ -31,7 +31,7 @@
         const CustomerListPage = {
             // 設定値
             config: {
-                gasWebAppUrl: 'https://script.google.com/macros/s/AKfycbyxShi2b0-fiyGXRfK2Ro0PiHHOJoPg5VdUPXXFTJtxizsZvMX5qsybwbbBcIwOQLLzmg/exec',
+                gasWebAppUrl: 'https://script.google.com/macros/s/AKfycbzKasZn6oHcORLfCLeT_H_fsHVeFjRTBHZfgQqYZpFROp900oJI_9dKv_dh800hovqeBg/exec',
                 customerListId: '#customerList'
             },
             // DOM要素
@@ -58,8 +58,9 @@
              * GASからマスターデータをJSONとして取得する
              */
             async fetchMasterData() {
+                // ★★★ 得意先リスト取得専用のURLに変更 ★★★
+                const url = `${this.config.gasWebAppUrl}?action=getCustomers&_=${new Date().getTime()}`;
                 try {
-                    const url = `${this.config.gasWebAppUrl}?_=${new Date().getTime()}`;
                     const response = await fetch(url);
                     if (!response.ok) throw new Error(`Network response was not ok. Status: ${response.status}`);
                     const data = await response.json();
@@ -75,21 +76,17 @@
              * マスターデータから重複しない得意先リストを生成する
              */
             createCustomerList(masterData) {
-                if (!masterData || masterData.length === 0) return [];
-                const customerMap = new Map();
-                masterData.forEach(row => {
-                    if (row['得意先コード'] && !customerMap.has(row['得意先コード'])) {
-                        customerMap.set(row['得意先コード'], row['得意先名']);
-                    }
-                });
-                return Array.from(customerMap, ([id, name]) => ({ id, name }));
+                // ★★★ サーバー側で処理済みのデータが来るため、この関数はそのまま返すだけでOK ★★★
+                return masterData;
             },
 
             /**
              * 得意先リストをHTMLに描画する
              */
             renderCustomerList(customers) {
-                this.elements.customerList.innerHTML = '';
+                const listEl = this.elements.customerList;
+                const fragment = document.createDocumentFragment();
+                listEl.innerHTML = '';
                 if (customers.length > 0) {
                     customers.forEach(customer => {
                         const listItem = document.createElement('li');
@@ -97,10 +94,11 @@
                         link.href = `invoice.html?customerId=${customer.id}&_=${new Date().getTime()}`;
                         link.textContent = customer.name;
                         listItem.appendChild(link);
-                        this.elements.customerList.appendChild(listItem);
+                        fragment.appendChild(listItem);
                     });
+                    listEl.appendChild(fragment);
                 } else {
-                    this.elements.customerList.innerHTML = '<li>表示できる得意先がありません。</li>';
+                    listEl.innerHTML = '<li>表示できる得意先がありません。</li>';
                 }
             }
         };
