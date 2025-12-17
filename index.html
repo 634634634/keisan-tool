@@ -42,11 +42,19 @@
              */
             async init() {
                 this.elements.customerList = document.querySelector(this.config.customerListId);
-                this.elements.customerList.innerHTML = '<li>データを読み込んでいます...</li>';
+
+                // ★★★ sessionStorageからキャッシュを取得試行 ★★★
+                const cachedCustomers = this.getCache();
+                if (cachedCustomers) {
+                    this.renderCustomerList(cachedCustomers);
+                    return; // キャッシュがあったので処理終了
+                }
 
                 try {
+                    this.elements.customerList.innerHTML = '<li>データを読み込んでいます...</li>';
                     const masterData = await this.fetchMasterData();
                     const customers = this.createCustomerList(masterData);
+                    this.setCache(customers); // ★★★ 取得したデータをキャッシュに保存 ★★★
                     this.renderCustomerList(customers);
                 } catch (error) {
                     console.error("初期化中にエラーが発生しました:", error);
@@ -72,6 +80,25 @@
                 }
             },
 
+            /**
+             * sessionStorageに得意先リストを保存する
+             * @param {Array} customers - 保存する得意先リスト
+             */
+            setCache(customers) {
+                try {
+                    sessionStorage.setItem('customerListCache', JSON.stringify(customers));
+                } catch (e) {
+                    console.warn('Failed to cache customer list:', e);
+                }
+            },
+
+            /**
+             * sessionStorageから得意先リストを取得する
+             */
+            getCache() {
+                const cachedData = sessionStorage.getItem('customerListCache');
+                return cachedData ? JSON.parse(cachedData) : null;
+            },
             /**
              * マスターデータから重複しない得意先リストを生成する
              */
