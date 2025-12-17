@@ -325,7 +325,7 @@
 
                 async handleClearQuantities() {
                     // ★★★ サーバー通信を行わず、画面上の入力欄のみをクリアする ★★★
-                    if (!confirm('画面上の数量をすべてクリアします。よろしいですか？')) return;
+                    if (!confirm('数量をすべてクリアします。よろしいですか？')) return;
 
                     let hasCleared = false;
                     App.elements.productsTableBody.querySelectorAll(App.config.selectors.quantityInput).forEach(input => {
@@ -620,16 +620,21 @@
                             let hasChanged = false;
 
                             if (options.collectQuantity) {
-                                const newQuantity = row.querySelector(App.config.selectors.quantityInput).value;
-                                if (newQuantity !== '' && parseFloat(newQuantity) !== (originalProduct['数量'] || 0)) {
-                                    changedData['数量'] = parseFloat(newQuantity);
+                                // ★★★ 空文字を0として扱い、元の値と比較するロジックを修正 ★★★
+                                const newQuantityValue = row.querySelector(App.config.selectors.quantityInput).value;
+                                const newQuantity = newQuantityValue === '' ? 0 : parseFloat(newQuantityValue);
+                                const originalQuantity = originalProduct['数量'] || 0;
+                                if (newQuantity !== originalQuantity) {
+                                    changedData['数量'] = newQuantity;
                                     hasChanged = true;
                                 }
                             }
                             if (options.collectMaster) {
-                                const newSellPrice = row.querySelector(App.config.selectors.sellPriceInput).value;
+                                // ★★★ 売価が空欄にされた場合も変更として検知するように修正 ★★★
+                                const newSellPriceValue = row.querySelector(App.config.selectors.sellPriceInput).value;
+                                const newSellPrice = newSellPriceValue === '' ? null : parseFloat(newSellPriceValue);
                                 const originalSellPrice = originalProduct['売価'] || null;
-                                if (newSellPrice !== '' && parseFloat(newSellPrice) !== originalSellPrice) {
+                                if (newSellPrice !== originalSellPrice) {
                                     changedData['売価'] = parseFloat(newSellPrice); hasChanged = true;
                                 }
                                 const deptSelect = row.querySelector(App.config.selectors.deptInput);
