@@ -3,6 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, shrink-to-fit=no">
+    <!-- ★★★ セキュリティ対策: Content Security Policy (CSP) を追加 ★★★ -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self' https://script.google.com https://script.googleusercontent.com; object-src 'none'; base-uri 'self'; form-action 'self';">
     <title>納品金額計算</title>
     <style>
         /* スタイルは変更なし */
@@ -172,11 +174,25 @@
                     deptInput: '.dept-input'
                 }
             },
+            // ★★★ アプリケーション設定（マジックナンバーの排除） ★★★
+            settings: {
+                itemsPerInvoicePage: 6, // 伝票の小計を入れる行数
+                toastDuration: 2000,
+                toastErrorDuration: 4000,
+                backupExpirationMs: 60000 // バックアップの有効期限（ミリ秒）
+            },
             // 定数
             constants: {
                 EDIT_MODE_CLASS: 'is-editing',
                 NEW_PRODUCT_ROW_CLASS: 'new-product-row',
-                UNKNOWN_DEPT_ID: 'unknown'
+                UNKNOWN_DEPT_ID: 'unknown',
+                // ★★★ クラス名の定数化 ★★★
+                CLASSES: {
+                    PRODUCT_NAME_CELL: 'product-name-cell',
+                    PRICE_CELL: 'price-cell',
+                    DISPLAY_SPAN: 'display-span',
+                    EDITABLE_INPUT: 'editable-input'
+                }
             },
             // アプリケーションの状態
             state: {
@@ -189,6 +205,33 @@
             // ★★★ 状態を変更するための専用関数（ミューテーション） ★★★
             mutations: {
                 setInitialData(state, { customerId, products, departments }) {
+                    // ★★★ GASの反映遅延対策: 直近のローカルバックアップがあればマージする ★★★
+                    const backupKey = `backup_${customerId}`;
+                    const backupJson = sessionStorage.getItem(backupKey);
+                    if (backupJson) {
+                        try {
+                            const backup = JSON.parse(backupJson);
+                            // 60秒以内のバックアップなら有効とみなす
+                            if (Date.now() - backup.timestamp < App.settings.backupExpirationMs) {
+                                backup.updates.forEach(update => {
+                                    const product = products.find(p => p['商品コード'] === update['商品コード']);
+                                    if (product) {
+                                        if (update['数量'] !== undefined) product['数量'] = update['数量'];
+                                        if (update['売価'] !== undefined) product['売価'] = update['売価'];
+                                        if (update['部門コード'] !== undefined) {
+                                            product['部門コード'] = update['部門コード'];
+                                            product['部門'] = update['部門'];
+                                        }
+                                    }
+                                });
+                            } else {
+                                sessionStorage.removeItem(backupKey);
+                            }
+                        } catch (e) {
+                            console.error('Backup restore failed:', e);
+                        }
+                    }
+
                     state.customerId = customerId;
                     state.products = products;
                     state.customerName = products[0]?.['得意先名'] || '';
@@ -296,12 +339,16 @@
                         return { products: [], departments: [] }; // ★★★ エラー時の戻り値を修正
                     }
                 },
-                async postData(payload) {
-                    const response = await fetch(App.config.gasWebAppUrl, {
+                async postData(payload, isAutoSave = false) {
+                    const options = {
                         method: 'POST',
                         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
                         body: JSON.stringify(payload)
-                    });
+                    };
+                    // ★★★ ページ遷移時でもリクエストがキャンセルされないようにする ★★★
+                    if (isAutoSave) options.keepalive = true;
+
+                    const response = await fetch(App.config.gasWebAppUrl, options);
                     const result = await response.json();
                     if (result.status === 'error') throw new Error(result.message);
                     return result;
@@ -349,8 +396,8 @@
                         if (wasSaved) {
                             App.setDirty(false);
                             App.ui.toggleEditMode(false);
-                            App.ui.showToast('保存しました。ページを更新します...', 2000);
-                            setTimeout(() => window.location.reload(), 2000);
+                            App.ui.showToast('保存しました。ページを更新します...', App.settings.toastDuration);
+                            setTimeout(() => window.location.reload(), App.settings.toastDuration);
                         }
                     } else {
                         App.setDirty(true);
@@ -361,7 +408,8 @@
                 async handleSaveProducts() {
                     // ★★★ データ収集ロジックをヘルパー関数に委譲 ★★★
                     const { updates, additions } = App.ui._collectSaveData({
-                        collectMaster: true
+                        collectMaster: true,
+                        collectQuantity: true // ★★★ 数量の変更も一緒に保存するように修正 ★★★
                     }); // ★★★ 保存用のデータ収集関数を呼び出す
 
                     if (updates.length === 0 && additions.length === 0) {
@@ -374,9 +422,17 @@
                     App.ui.toggleButtonState(button, true, '保存中...');
                     try {
                         await App.api.postData({ updates, additions });
+
+                        // ★★★ リロード対策: バックアップ保存 ★★★
+                        const backupKey = `backup_${App.state.customerId}`;
+                        sessionStorage.setItem(backupKey, JSON.stringify({
+                            timestamp: Date.now(),
+                            updates: updates
+                        }));
+
                         return true;
                     } catch (error) {
-                        App.ui.showToast(`保存エラー: ${error.message}`, 4000);
+                        App.ui.showToast(`保存エラー: ${error.message}`, App.settings.toastErrorDuration);
                         return false;
                     } finally {
                         App.ui.toggleButtonState(button, false, '変更を保存');
@@ -434,8 +490,15 @@
 
                         if (updates.length > 0) {
                             // ページを離れる直前のデータ送信のため、完了を待たない
+                            // ★★★ 離脱対策: バックアップ保存 ★★★
+                            const backupKey = `backup_${App.state.customerId}`;
+                            sessionStorage.setItem(backupKey, JSON.stringify({
+                                timestamp: Date.now(),
+                                updates: updates
+                            }));
+
                             try {
-                                App.api.postData({ updates });
+                                App.api.postData({ updates }, true); // ★★★ 自動保存フラグをtrueにする
                                 App.setDirty(false); // 送信試行後は変更フラグをリセット
                             } catch (error) {
                                 // このエラーはユーザーには通知しない（ページ離脱中のため）
@@ -448,11 +511,23 @@
 
             // --- UI関連 ---
             ui: {
+                // ★★★ XSS対策: innerHTMLを避け、安全なDOM操作でエラーメッセージを生成 ★★★
                 showError(message) {
-                    document.body.innerHTML = `<div class="container"><h1>エラー</h1><p>${message}</p><a href="index.html">得意先一覧に戻ってください。</a></div>`;
+                    const container = document.createElement('div');
+                    container.className = 'container';
+                    const h1 = document.createElement('h1');
+                    h1.textContent = 'エラー';
+                    const p = document.createElement('p');
+                    p.textContent = message; // textContentを使い、スクリプトの実行を防止
+                    const a = document.createElement('a');
+                    a.href = 'index.html';
+                    a.textContent = '得意先一覧に戻ってください。';
+                    container.append(h1, p, a);
+                    document.body.innerHTML = ''; // 既存のコンテンツをクリア
+                    document.body.appendChild(container);
                 },
 
-                showToast(message, duration = 2000) {
+                showToast(message, duration = App.settings.toastDuration) {
                     const toast = document.createElement('div');
                     toast.className = 'toast-notification';
                     toast.textContent = message;
@@ -502,27 +577,72 @@
                     }
                 },
 
+                // ★★★ 入力要素作成のヘルパー関数 ★★★
+                _createInput(type, className, value, placeholder = '') {
+                    const input = document.createElement('input');
+                    input.type = type;
+                    input.className = className;
+                    if (placeholder) input.placeholder = placeholder;
+                    input.value = value;
+                    return input;
+                },
+
+                // ★★★ XSS対策: innerHTMLを避け、安全なDOM操作でテーブル行を生成 ★★★
                 createProductRow(product) {
                     const row = document.createElement('tr');
                     row.dataset.productId = product['商品コード'];
                     const unitPrice = product['単価'] || '';
                     const sellPrice = product['売価'] || '';
+                    const { CLASSES } = App.constants;
 
+                    // 1. 商品名セル
+                    const nameCell = document.createElement('td');
+                    nameCell.className = CLASSES.PRODUCT_NAME_CELL;
+                    const nameDisplay = document.createElement('span');
+                    nameDisplay.className = `${CLASSES.DISPLAY_SPAN} name-display`;
+                    nameDisplay.textContent = product['商品名']; // textContentで安全に設定
+                    const nameInput = this._createInput('text', `${CLASSES.EDITABLE_INPUT} name-input`, product['商品名']);
+                    nameCell.append(nameDisplay, nameInput);
+
+                    // 2. 数量セル
+                    const quantityCell = document.createElement('td');
+                    const quantityInput = this._createInput('number', 'quantity-input', product['数量'] || '', '0');
+                    quantityCell.appendChild(quantityInput);
+
+                    // 3. 単価セル
+                    const unitPriceCell = document.createElement('td');
+                    unitPriceCell.className = CLASSES.PRICE_CELL;
+                    const unitPriceDisplay = document.createElement('span');
+                    unitPriceDisplay.className = `${CLASSES.DISPLAY_SPAN} unit-price-display`;
+                    unitPriceDisplay.textContent = unitPrice ? unitPrice.toLocaleString() : '';
+                    const unitPriceInput = this._createInput('number', `${CLASSES.EDITABLE_INPUT} unit-price-input`, unitPrice);
+                    unitPriceCell.append(unitPriceDisplay, unitPriceInput);
+
+                    // 4. 売価セル
+                    const sellPriceCell = document.createElement('td');
+                    sellPriceCell.className = CLASSES.PRICE_CELL;
+                    const sellPriceDisplay = document.createElement('span');
+                    sellPriceDisplay.className = `${CLASSES.DISPLAY_SPAN} sell-price-display`;
+                    sellPriceDisplay.textContent = sellPrice ? sellPrice.toLocaleString() : '';
+                    const sellPriceInput = this._createInput('number', `${CLASSES.EDITABLE_INPUT} sell-price-input`, sellPrice);
+                    sellPriceCell.append(sellPriceDisplay, sellPriceInput);
+
+                    // 5. 部門セル
+                    const deptCell = document.createElement('td');
+                    deptCell.className = 'col-department dept-select-container';
+                    const deptDisplay = document.createElement('span');
+                    deptDisplay.className = `${CLASSES.DISPLAY_SPAN} dept-display`;
+                    deptDisplay.textContent = product['部門'] || ''; // textContentで安全に設定
                     const deptSelect = this._createDepartmentSelect(product['部門コード']);
+                    deptCell.append(deptDisplay, deptSelect);
 
-                    // ★★★ プレースホルダーを使って、より安全に要素を挿入する ★★★
-                    row.innerHTML = `<td class="product-name-cell"><span class="display-span name-display">${product['商品名']}</span><input type="text" class="editable-input name-input" value="${product['商品名']}"></td>
-                                     <td><input type="number" class="quantity-input" placeholder="0" value="${product['数量'] || ''}"></td>
-                                     <td class="price-cell"><span class="display-span unit-price-display">${unitPrice ? unitPrice.toLocaleString() : ''}</span><input type="number" class="editable-input unit-price-input" value="${unitPrice}"></td>
-                                     <td class="price-cell"><span class="display-span sell-price-display">${sellPrice ? sellPrice.toLocaleString() : ''}</span><input type="number" class="editable-input sell-price-input" value="${sellPrice}"></td>
-                                     <td class="col-department dept-select-container"><span class="display-span dept-display">${product['部門'] || ''}</span></td>`;
-                    row.querySelector('.dept-select-container').appendChild(deptSelect);
+                    row.append(nameCell, quantityCell, unitPriceCell, sellPriceCell, deptCell);
                     return row;
                 },
 
                 _createDepartmentSelect(selectedDeptCode) {
                     const deptSelect = document.createElement('select');
-                    deptSelect.className = 'editable-input dept-input';
+                    deptSelect.className = `${App.constants.CLASSES.EDITABLE_INPUT} dept-input`;
 
                     const blankOption = document.createElement('option');
                     blankOption.value = '';
@@ -703,7 +823,7 @@
                         tbody.appendChild(itemRow);
 
                         const isLastItem = index === deptGroup.items.length - 1;
-                        if (itemCounter % 6 === 0 || isLastItem) {
+                        if (itemCounter % App.settings.itemsPerInvoicePage === 0 || isLastItem) {
                             const subtotalRow = this._createInvoiceSubtotalRow(runningCostSubtotal, runningSubtotal);
                             tbody.appendChild(subtotalRow);
                             runningSubtotal = 0;
@@ -721,24 +841,25 @@
                     const displayCost = item['単価'] ? App.util.formatNumber(item['単価']) : '';
                     const displayCostSubtotal = (item['単価'] && item['単価'] > 0) ? App.util.formatNumber(costSubtotal) : '';
                     const displaySellPrice = (item['売価'] && item['売価'] > 0) ? App.util.formatNumber(item['売価']) : '';
-                    row.appendChild(App.util.createCell(item['商品名'], 'product-name-cell'));
-                    row.appendChild(App.util.createCell(App.util.formatNumber(item.quantity), 'price-cell'));
-                    row.appendChild(App.util.createCell(displayCost, 'price-cell'));
-                    row.appendChild(App.util.createCell(displayCostSubtotal, 'cost-subtotal'));
-                    row.appendChild(App.util.createCell(displaySellPrice, 'price-cell'));
-                    row.appendChild(App.util.createCell(App.util.formatNumber(itemSubtotal), 'subtotal'));
+                    const { CLASSES } = App.constants;
+                    row.appendChild(App.util.createCell(item['商品名'], CLASSES.PRODUCT_NAME_CELL)); // isHtml: false (default)
+                    row.appendChild(App.util.createCell(App.util.formatNumber(item.quantity), CLASSES.PRICE_CELL, true));
+                    row.appendChild(App.util.createCell(displayCost, CLASSES.PRICE_CELL, true));
+                    row.appendChild(App.util.createCell(displayCostSubtotal, 'cost-subtotal', true));
+                    row.appendChild(App.util.createCell(displaySellPrice, CLASSES.PRICE_CELL, true));
+                    row.appendChild(App.util.createCell(App.util.formatNumber(itemSubtotal), 'subtotal', true));
                     return row;
                 },
 
                 _createInvoiceSubtotalRow(costSubtotal, sellSubtotal) {
                     const subtotalRow = document.createElement('tr');
                     subtotalRow.className = 'subtotal-row';
-                    const labelCell1 = App.util.createCell('合計', 'total-label');
+                    const labelCell1 = App.util.createCell('合計', 'total-label'); // isHtml: false (default)
                     labelCell1.colSpan = 3;
                     subtotalRow.appendChild(labelCell1);
-                    subtotalRow.appendChild(App.util.createCell(App.util.formatNumber(costSubtotal), 'total-value'));
-                    subtotalRow.appendChild(App.util.createCell('合計', 'total-label'));
-                    subtotalRow.appendChild(App.util.createCell(App.util.formatNumber(sellSubtotal), 'total-value'));
+                    subtotalRow.appendChild(App.util.createCell(App.util.formatNumber(costSubtotal), 'total-value', true));
+                    subtotalRow.appendChild(App.util.createCell('合計', 'total-label')); // isHtml: false (default)
+                    subtotalRow.appendChild(App.util.createCell(App.util.formatNumber(sellSubtotal), 'total-value', true));
                     return subtotalRow;
                 },
 
@@ -762,9 +883,14 @@
 
             // --- ユーティリティ関数 ---
             util: {
-                createCell(text, className) {
+                // ★★★ XSS対策: HTMLを意図的に挿入する場合のみisHtmlフラグをtrueにする ★★★
+                createCell(content, className, isHtml = false) {
                     const cell = document.createElement('td');
-                    cell.innerHTML = text;
+                    if (isHtml) {
+                        cell.innerHTML = content;
+                    } else {
+                        cell.textContent = content;
+                    }
                     if (className) cell.className = className;
                     return cell;
                 },
