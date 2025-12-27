@@ -119,6 +119,18 @@
             box-shadow: 0 2px 10px rgba(0,0,0,0.2);
         }
         .toast-notification.show { opacity: 1; top: 30px; }
+
+        /* ★★★ カスタムフォーマット用の列幅調整（売価なしパターン） ★★★ */
+        .invoice-table.no-sell .invoice-col-name { width: 55%; }
+        .invoice-table.no-sell .invoice-col-qty { width: 10%; }
+        .invoice-table.no-sell .invoice-col-cost-price { width: 15%; }
+        .invoice-table.no-sell .invoice-col-cost-sub { width: 20%; }
+
+        /* ★★★ リファクタリング: JSからスタイルを分離 ★★★ */
+        .grand-total-header { border-top: 2px solid #3498db; padding-top: 15px; margin-top: 30px; }
+        .grand-total-row { font-size: 1.1em; }
+        .subtotal-cell-item { padding: 2px 0; }
+        .subtotal-cell-divider { border-bottom: 1px solid #ccc; }
     </style>
 </head>
 <body>
@@ -179,7 +191,26 @@
                 itemsPerInvoicePage: 6, // 伝票の小計を入れる行数
                 toastDuration: 2000,
                 toastErrorDuration: 4000,
-                backupExpirationMs: 60000 // バックアップの有効期限（ミリ秒）
+                backupExpirationMs: 60000, // バックアップの有効期限（ミリ秒）
+                // ★★★ 伝票フォーマット設定 ★★★
+                formats: {
+                    default: {
+                        rowsPerPage: 6,
+                        showCost: true,
+                        showSell: true,
+                        showTax: false,
+                        taxRate: 0.08, // デフォルト税率 8%
+                        taxRounding: 'floor' // 端数処理 (floor:切り捨て, ceil:切り上げ, round:四捨五入)
+                    },
+                    // ★★★ 特定の得意先用の設定（ここにIDを指定） ★★★
+                    special: {
+                        // customerIds: [], // スプレッドシートの「フォーマット」列で "special" と指定することで適用されます
+                        rowsPerPage: 5,
+                        showCost: true, showSell: false, showTax: true,
+                        taxRate: 0.08, // 特別税率 8%
+                        taxRounding: 'floor' // 端数処理 (floor:切り捨て, ceil:切り上げ, round:四捨五入)
+                    }
+                }
             },
             // 定数
             constants: {
@@ -190,8 +221,13 @@
                 CLASSES: {
                     PRODUCT_NAME_CELL: 'product-name-cell',
                     PRICE_CELL: 'price-cell',
+                        COST_SUBTOTAL_CELL: 'cost-subtotal',
+                        SUBTOTAL_CELL: 'subtotal',
                     DISPLAY_SPAN: 'display-span',
-                    EDITABLE_INPUT: 'editable-input'
+                        EDITABLE_INPUT: 'editable-input',
+                        SUBTOTAL_ROW: 'subtotal-row',
+                        TOTAL_LABEL: 'total-label',
+                        TOTAL_VALUE: 'total-value'
                 }
             },
             // アプリケーションの状態
@@ -205,6 +241,13 @@
             // ★★★ 状態を変更するための専用関数（ミューテーション） ★★★
             mutations: {
                 setInitialData(state, { customerId, products, departments }) {
+                    // ★★★ 商品コードがない場合は商品名をIDとして使用し、全て文字列として扱うよう正規化 ★★★
+                    const normalizedProducts = products.map(p => {
+                        const code = (p['商品コード'] != null && p['商品コード'] !== '') ? String(p['商品コード']) : p['商品名'];
+                        const deptCode = (p['部門コード'] != null && p['部門コード'] !== '') ? String(p['部門コード']) : (p['部門'] || App.constants.UNKNOWN_DEPT_ID);
+                        return { ...p, '商品コード': code, '部門コード': deptCode };
+                    });
+
                     // ★★★ GASの反映遅延対策: 直近のローカルバックアップがあればマージする ★★★
                     const backupKey = `backup_${customerId}`;
                     const backupJson = sessionStorage.getItem(backupKey);
@@ -214,7 +257,8 @@
                             // 60秒以内のバックアップなら有効とみなす
                             if (Date.now() - backup.timestamp < App.settings.backupExpirationMs) {
                                 backup.updates.forEach(update => {
-                                    const product = products.find(p => p['商品コード'] === update['商品コード']);
+                                    // 正規化済みのデータに対して検索（文字列同士の比較になるので安全）
+                                    const product = normalizedProducts.find(p => p['商品コード'] === String(update['商品コード']));
                                     if (product) {
                                         if (update['数量'] !== undefined) product['数量'] = update['数量'];
                                         if (update['売価'] !== undefined) product['売価'] = update['売価'];
@@ -233,9 +277,12 @@
                     }
 
                     state.customerId = customerId;
-                    state.products = products;
-                    state.customerName = products[0]?.['得意先名'] || '';
-                    state.departments = departments.filter(dept => dept.id && dept.name && String(dept.name).trim() !== '');
+                    state.products = normalizedProducts;
+                    state.customerName = normalizedProducts[0]?.['得意先名'] || '';
+                    // ★★★ 部門コードがない場合は部門名をIDとして使用する ★★★
+                    state.departments = departments
+                        .filter(dept => dept.name && String(dept.name).trim() !== '')
+                        .map(dept => ({ ...dept, id: (dept.id != null && dept.id !== '') ? String(dept.id) : dept.name }));
                 },
                 setDirty(state, isDirty) {
                     state.isDirty = isDirty;
@@ -736,7 +783,8 @@
                             const originalProduct = App.state.products.find(p => p['商品コード'] == productId);
                             if (!originalProduct) return;
 
-                            const changedData = { '得意先コード': App.state.customerId, '商品コード': parseInt(productId, 10) };
+                            // ★★★ 商品コードを数値変換せず、文字列のまま扱う（商品名ID対応） ★★★
+                            const changedData = { '得意先コード': App.state.customerId, '商品コード': productId };
                             let hasChanged = false;
 
                             if (options.collectQuantity) {
@@ -772,6 +820,35 @@
                     return { updates, additions };
                 },
 
+                // ★★★ 現在の得意先に適用するフォーマットを取得 ★★★
+                getInvoiceFormat() {
+                    const { formats } = App.settings;
+                    
+                    // 商品データの最初の行から設定情報を取得（スプレッドシートの列を参照）
+                    const settingsRow = App.state.products[0] || {};
+                    
+                    // 1. スプレッドシートの「フォーマット」列で指定された設定があればそれを使う
+                    // 例: フォーマット列に "special" とあれば formats.special を使用
+                    const formatType = settingsRow['フォーマット'];
+                    if (formatType && formats[formatType]) {
+                        // 設定オブジェクトをコピーして使用
+                        const customFormat = { ...formats[formatType] };
+                        
+                        // もしスプレッドシートに「税率」列があれば、その値で上書きする (例: 0.08)
+                        if (settingsRow['税率'] !== undefined && settingsRow['税率'] !== '') {
+                            customFormat.taxRate = parseFloat(settingsRow['税率']);
+                        }
+                        // ★★★ 端数処理の設定（切り捨て/切り上げ/四捨五入） ★★★
+                        if (settingsRow['端数処理']) {
+                            const map = { '切り捨て': 'floor', '切り上げ': 'ceil', '四捨五入': 'round' };
+                            if (map[settingsRow['端数処理']]) customFormat.taxRounding = map[settingsRow['端数処理']];
+                        }
+                        return customFormat;
+                    }
+                    
+                    return formats.default;
+                },
+
                 groupItemsByDepartment(items) {
                     return items.reduce((grouped, item) => {
                         const deptId = item['部門コード'] || App.constants.UNKNOWN_DEPT_ID;
@@ -786,30 +863,57 @@
                 renderInvoices(groupedData) {
                     App.elements.invoiceContainer.innerHTML = '';
                     const invoiceFragment = document.createDocumentFragment(); // ★★★ 伝票用の仮置き場
+                    const format = this.getInvoiceFormat(); // ★★★ フォーマット設定を取得
+
                     let grandTotalCost = 0;
+                    let grandTotalSell = 0;
+                    let grandTotalTax = 0; // ★★★ 消費税の総額 ★★★
+
                     for (const deptId in groupedData) {
-                        const deptTotalCost = this._renderDepartmentInvoice(invoiceFragment, groupedData[deptId]);
-                        grandTotalCost += deptTotalCost;
+                        const { totalCost, totalSell, totalTax } = this._renderDepartmentInvoice(invoiceFragment, groupedData[deptId], format);
+                        grandTotalCost += totalCost;
+                        grandTotalSell += totalSell;
+                        grandTotalTax += totalTax;
                     }
                     if (Object.keys(groupedData).length > 0) {
-                        this._renderGrandTotal(invoiceFragment, grandTotalCost);
+                        // 表示対象の金額を選択（売価表示なしなら原価合計を使う）
+                        const targetTotal = format.showSell ? grandTotalSell : grandTotalCost;
+                        // ★★★ 計算済みの消費税総額を渡す ★★★
+                        this._renderGrandTotal(invoiceFragment, targetTotal, format, grandTotalTax);
                     }
                     App.elements.invoiceContainer.appendChild(invoiceFragment); // ★★★ 最後に一括で伝票を描画
                 },
 
-                _renderDepartmentInvoice(fragment, deptGroup) {
+                _renderDepartmentInvoice(fragment, deptGroup, format) {
                     const departmentHeader = document.createElement('h3');
                     departmentHeader.textContent = deptGroup.name;
                     fragment.appendChild(departmentHeader);
 
                     const table = document.createElement('table');
-                    table.innerHTML = `<thead><tr><th class="invoice-col-name">品名</th><th class="invoice-col-qty">数量</th><th class="invoice-col-cost-price">原単価</th><th class="invoice-col-cost-sub">原価金額</th><th class="invoice-col-price">売単価</th><th class="invoice-col-sub">売価金額</th></tr></thead>`;
+                    table.className = 'invoice-table';
+                    if (!format.showSell) table.classList.add('no-sell'); // CSS用クラス
+
+                    // ★★★ ヘッダーの動的生成 ★★★
+                    const thead = document.createElement('thead');
+                    const headerRow = document.createElement('tr');
+                    headerRow.innerHTML = `<th class="invoice-col-name">品名</th><th class="invoice-col-qty">数量</th>`;
+                    if (format.showCost) {
+                        headerRow.innerHTML += `<th class="invoice-col-cost-price">原単価</th><th class="invoice-col-cost-sub">原価金額</th>`;
+                    }
+                    if (format.showSell) {
+                        headerRow.innerHTML += `<th class="invoice-col-price">売単価</th><th class="invoice-col-sub">売価金額</th>`;
+                    }
+                    thead.appendChild(headerRow);
+                    table.appendChild(thead);
+
                     const tbody = document.createElement('tbody');
 
                     let itemCounter = 0;
                     let runningSubtotal = 0;
                     let runningCostSubtotal = 0;
                     let departmentTotalCost = 0;
+                    let departmentTotalSell = 0;
+                    let departmentTotalTax = 0;
 
                     deptGroup.items.forEach((item, index) => {
                         itemCounter++;
@@ -818,13 +922,23 @@
                         runningSubtotal += itemSubtotal;
                         runningCostSubtotal += costSubtotal;
                         departmentTotalCost += costSubtotal;
+                        departmentTotalSell += itemSubtotal;
 
-                        const itemRow = this._createInvoiceItemRow(item, costSubtotal, itemSubtotal);
+                        const itemRow = this._createInvoiceItemRow(item, costSubtotal, itemSubtotal, format);
                         tbody.appendChild(itemRow);
 
                         const isLastItem = index === deptGroup.items.length - 1;
-                        if (itemCounter % App.settings.itemsPerInvoicePage === 0 || isLastItem) {
-                            const subtotalRow = this._createInvoiceSubtotalRow(runningCostSubtotal, runningSubtotal);
+                        // ★★★ 設定された行数で改ページ（小計） ★★★
+                        if (itemCounter % format.rowsPerPage === 0 || isLastItem) {
+                            // ★★★ 小計ごとの消費税計算（端数処理設定を反映） ★★★
+                            const targetSubtotal = format.showSell ? runningSubtotal : runningCostSubtotal;
+                            let subtotalTax = 0;
+                            if (format.showTax) {
+                                subtotalTax = App.util.calculateTax(targetSubtotal, format.taxRate, format.taxRounding);
+                            }
+                            departmentTotalTax += subtotalTax;
+
+                            const subtotalRow = this._createInvoiceSubtotalRow(runningCostSubtotal, runningSubtotal, format, subtotalTax);
                             tbody.appendChild(subtotalRow);
                             runningSubtotal = 0;
                             runningCostSubtotal = 0;
@@ -833,10 +947,10 @@
 
                     table.appendChild(tbody);
                     fragment.appendChild(table);
-                    return departmentTotalCost;
+                    return { totalCost: departmentTotalCost, totalSell: departmentTotalSell, totalTax: departmentTotalTax };
                 },
 
-                _createInvoiceItemRow(item, costSubtotal, itemSubtotal) {
+                _createInvoiceItemRow(item, costSubtotal, itemSubtotal, format) {
                     const row = document.createElement('tr');
                     const displayCost = item['単価'] ? App.util.formatNumber(item['単価']) : '';
                     const displayCostSubtotal = (item['単価'] && item['単価'] > 0) ? App.util.formatNumber(costSubtotal) : '';
@@ -844,36 +958,84 @@
                     const { CLASSES } = App.constants;
                     row.appendChild(App.util.createCell(item['商品名'], CLASSES.PRODUCT_NAME_CELL)); // isHtml: false (default)
                     row.appendChild(App.util.createCell(App.util.formatNumber(item.quantity), CLASSES.PRICE_CELL, true));
-                    row.appendChild(App.util.createCell(displayCost, CLASSES.PRICE_CELL, true));
-                    row.appendChild(App.util.createCell(displayCostSubtotal, 'cost-subtotal', true));
-                    row.appendChild(App.util.createCell(displaySellPrice, CLASSES.PRICE_CELL, true));
-                    row.appendChild(App.util.createCell(App.util.formatNumber(itemSubtotal), 'subtotal', true));
+                    
+                    if (format.showCost) {
+                        row.appendChild(App.util.createCell(displayCost, CLASSES.PRICE_CELL, true));
+                        row.appendChild(App.util.createCell(displayCostSubtotal, CLASSES.COST_SUBTOTAL_CELL, true));
+                    }
+                    if (format.showSell) {
+                        row.appendChild(App.util.createCell(displaySellPrice, CLASSES.PRICE_CELL, true));
+                        row.appendChild(App.util.createCell(App.util.formatNumber(itemSubtotal), CLASSES.SUBTOTAL_CELL, true));
+                    }
                     return row;
                 },
 
-                _createInvoiceSubtotalRow(costSubtotal, sellSubtotal) {
+                _createInvoiceSubtotalRow(costSubtotal, sellSubtotal, format, taxAmount = 0) {
                     const subtotalRow = document.createElement('tr');
-                    subtotalRow.className = 'subtotal-row';
-                    const labelCell1 = App.util.createCell('合計', 'total-label'); // isHtml: false (default)
-                    labelCell1.colSpan = 3;
+                    subtotalRow.className = App.constants.CLASSES.SUBTOTAL_ROW;
+                    
+                    // ★★★ スタイル定義（クラスを使用） ★★★
+                    const itemClass = 'subtotal-cell-item';
+                    const dividerClass = 'subtotal-cell-divider';
+                    const { CLASSES } = App.constants;
+
+                    // ★★★ ラベルの生成 ★★★
+                    let labelText = '合計';
+                    if (format.showTax) {
+                        labelText = `<div class="${itemClass} ${dividerClass}">合計</div><div class="${itemClass} ${dividerClass}">消費税</div><div class="${itemClass}">税込</div>`;
+                    }
+                    
+                    const labelCell1 = App.util.createCell(labelText, CLASSES.TOTAL_LABEL, true);
+                    
+                    // colspanの計算: 品名(1) + 数量(1) + (原単価(1) if showCost)
+                    let colSpan = 2;
+                    if (format.showCost) colSpan += 1;
+                    labelCell1.colSpan = colSpan;
+                    
                     subtotalRow.appendChild(labelCell1);
-                    subtotalRow.appendChild(App.util.createCell(App.util.formatNumber(costSubtotal), 'total-value', true));
-                    subtotalRow.appendChild(App.util.createCell('合計', 'total-label')); // isHtml: false (default)
-                    subtotalRow.appendChild(App.util.createCell(App.util.formatNumber(sellSubtotal), 'total-value', true));
+
+                    if (format.showCost) {
+                        let content = App.util.formatNumber(costSubtotal);
+                        if (format.showTax && !format.showSell) { // 売価なし（原価のみ）かつ税表示ありの場合
+                            content = `<div class="${itemClass} ${dividerClass}">${App.util.formatNumber(costSubtotal)}</div><div class="${itemClass} ${dividerClass}">${App.util.formatNumber(taxAmount)}</div><div class="${itemClass}">${App.util.formatNumber(costSubtotal + taxAmount)}</div>`;
+                        }
+                        subtotalRow.appendChild(App.util.createCell(content, CLASSES.TOTAL_VALUE, true));
+                    }
+                    
+                    if (format.showSell) {
+                        // 原価と売価の両方がある場合は間に「合計」ラベルを挟む
+                        if (format.showCost) {
+                            // 中央のラベルも同様にフォーマットする
+                            let middleLabel = '合計';
+                            if (format.showTax) {
+                                middleLabel = `<div class="${itemClass} ${dividerClass}">合計</div><div class="${itemClass} ${dividerClass}">消費税</div><div class="${itemClass}">税込</div>`;
+                            }
+                            subtotalRow.appendChild(App.util.createCell(middleLabel, CLASSES.TOTAL_LABEL, true));
+                        }
+                        let content = App.util.formatNumber(sellSubtotal);
+                        if (format.showTax) {
+                            content = `<div class="${itemClass} ${dividerClass}">${App.util.formatNumber(sellSubtotal)}</div><div class="${itemClass} ${dividerClass}">${App.util.formatNumber(taxAmount)}</div><div class="${itemClass}">${App.util.formatNumber(sellSubtotal + taxAmount)}</div>`;
+                        }
+                        subtotalRow.appendChild(App.util.createCell(content, CLASSES.TOTAL_VALUE, true));
+                    }
                     return subtotalRow;
                 },
 
-                _renderGrandTotal(fragment, totalCost) {
+                _renderGrandTotal(fragment, totalAmount) {
+                    const { CLASSES } = App.constants;
                     const grandTotalHeader = document.createElement('h3');
                     grandTotalHeader.textContent = '総合計';
-                    grandTotalHeader.style.cssText = 'border-top: 2px solid #3498db; padding-top: 15px; margin-top: 30px;';
+                    grandTotalHeader.className = 'grand-total-header';
                     
                     const table = document.createElement('table');
                     const tbody = document.createElement('tbody');
+                    
+                    // 税抜合計
                     const totalRow = document.createElement('tr');
-                    totalRow.className = 'subtotal-row';
-                    totalRow.innerHTML = `<td class="total-label" colspan="5">原価金額 総合計</td><td class="total-value">${App.util.formatNumber(totalCost)}</td>`;
+                    totalRow.className = CLASSES.SUBTOTAL_ROW;
+                    totalRow.innerHTML = `<td class="${CLASSES.TOTAL_LABEL}" style="width: 80%;">税抜合計</td><td class="${CLASSES.TOTAL_VALUE}">${App.util.formatNumber(totalAmount)}</td>`;
                     tbody.appendChild(totalRow);
+
                     table.appendChild(tbody);
 
                     fragment.appendChild(grandTotalHeader);
@@ -901,6 +1063,15 @@
                         return `<span class="minus-symbol">▲</span>${Math.abs(num).toLocaleString()}`;
                     }
                     return num.toLocaleString();
+                },
+
+                calculateTax(amount, rate, rounding) {
+                    const tax = amount * rate;
+                    switch (rounding) {
+                        case 'ceil': return Math.ceil(tax);
+                        case 'round': return Math.round(tax);
+                        case 'floor': default: return Math.floor(tax);
+                    }
                 }
             }
         };
