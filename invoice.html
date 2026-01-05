@@ -131,6 +131,7 @@
         .grand-total-row { font-size: 1.1em; }
         .subtotal-cell-item { padding: 2px 0; }
         .subtotal-cell-divider { border-bottom: 1px solid #ccc; }
+        .grand-total-label-cell { width: 80%; }
     </style>
 </head>
 <body>
@@ -227,7 +228,10 @@
                         EDITABLE_INPUT: 'editable-input',
                         SUBTOTAL_ROW: 'subtotal-row',
                         TOTAL_LABEL: 'total-label',
-                        TOTAL_VALUE: 'total-value'
+                        TOTAL_VALUE: 'total-value',
+                        SUBTOTAL_CELL_ITEM: 'subtotal-cell-item',
+                        SUBTOTAL_CELL_DIVIDER: 'subtotal-cell-divider',
+                        GRAND_TOTAL_LABEL_CELL: 'grand-total-label-cell'
                 }
             },
             // アプリケーションの状態
@@ -731,7 +735,7 @@
                         const isNew = row.classList.contains(App.constants.NEW_PRODUCT_ROW_CLASS);
                         const quantity = parseFloat(row.querySelector('.quantity-input').value);
 
-                        if (isNew || !quantity || quantity <= 0) return;
+                        if (isNew || isNaN(quantity) || quantity === 0) return;
 
                         const originalProduct = App.state.products.find(p => p['商品コード'] == productId);
                         if (!originalProduct) return;
@@ -878,8 +882,7 @@
                     if (Object.keys(groupedData).length > 0) {
                         // 表示対象の金額を選択（売価表示なしなら原価合計を使う）
                         const targetTotal = format.showSell ? grandTotalSell : grandTotalCost;
-                        // ★★★ 計算済みの消費税総額を渡す ★★★
-                        this._renderGrandTotal(invoiceFragment, targetTotal, format, grandTotalTax);
+                        this._renderGrandTotal(invoiceFragment, targetTotal, format, grandTotalCost);
                     }
                     App.elements.invoiceContainer.appendChild(invoiceFragment); // ★★★ 最後に一括で伝票を描画
                 },
@@ -955,6 +958,8 @@
                     const displayCost = item['単価'] ? App.util.formatNumber(item['単価']) : '';
                     const displayCostSubtotal = (item['単価'] && item['単価'] > 0) ? App.util.formatNumber(costSubtotal) : '';
                     const displaySellPrice = (item['売価'] && item['売価'] > 0) ? App.util.formatNumber(item['売価']) : '';
+                    // 売価が空欄の場合は金額も空欄にする
+                    const displaySellSubtotal = (item['売価'] !== '' && item['売価'] !== null && item['売価'] !== undefined) ? App.util.formatNumber(itemSubtotal) : '';
                     const { CLASSES } = App.constants;
                     row.appendChild(App.util.createCell(item['商品名'], CLASSES.PRODUCT_NAME_CELL)); // isHtml: false (default)
                     row.appendChild(App.util.createCell(App.util.formatNumber(item.quantity), CLASSES.PRICE_CELL, true));
@@ -965,24 +970,30 @@
                     }
                     if (format.showSell) {
                         row.appendChild(App.util.createCell(displaySellPrice, CLASSES.PRICE_CELL, true));
-                        row.appendChild(App.util.createCell(App.util.formatNumber(itemSubtotal), CLASSES.SUBTOTAL_CELL, true));
+                        row.appendChild(App.util.createCell(displaySellSubtotal, CLASSES.SUBTOTAL_CELL, true));
                     }
                     return row;
                 },
 
-                _createInvoiceSubtotalRow(costSubtotal, sellSubtotal, format, taxAmount = 0) {
-                    const subtotalRow = document.createElement('tr');
-                    subtotalRow.className = App.constants.CLASSES.SUBTOTAL_ROW;
-                    
-                    // ★★★ スタイル定義（クラスを使用） ★★★
-                    const itemClass = 'subtotal-cell-item';
-                    const dividerClass = 'subtotal-cell-divider';
+                // ★★★ 3段表示（合計・消費税・税込）のHTMLを生成するヘルパー ★★★
+                _createStackedContent(top, middle, bottom) {
                     const { CLASSES } = App.constants;
+                    const itemClass = CLASSES.SUBTOTAL_CELL_ITEM;
+                    const dividerClass = CLASSES.SUBTOTAL_CELL_DIVIDER;
+                    return `<div class="${itemClass} ${dividerClass}">${top}</div>` +
+                           `<div class="${itemClass} ${dividerClass}">${middle}</div>` +
+                           `<div class="${itemClass}">${bottom}</div>`;
+                },
+
+                _createInvoiceSubtotalRow(costSubtotal, sellSubtotal, format, taxAmount = 0) {
+                    const { CLASSES } = App.constants;
+                    const subtotalRow = document.createElement('tr');
+                    subtotalRow.className = CLASSES.SUBTOTAL_ROW;
 
                     // ★★★ ラベルの生成 ★★★
                     let labelText = '合計';
                     if (format.showTax) {
-                        labelText = `<div class="${itemClass} ${dividerClass}">合計</div><div class="${itemClass} ${dividerClass}">消費税</div><div class="${itemClass}">税込</div>`;
+                        labelText = this._createStackedContent('合計', '消費税', '税込');
                     }
                     
                     const labelCell1 = App.util.createCell(labelText, CLASSES.TOTAL_LABEL, true);
@@ -997,7 +1008,11 @@
                     if (format.showCost) {
                         let content = App.util.formatNumber(costSubtotal);
                         if (format.showTax && !format.showSell) { // 売価なし（原価のみ）かつ税表示ありの場合
-                            content = `<div class="${itemClass} ${dividerClass}">${App.util.formatNumber(costSubtotal)}</div><div class="${itemClass} ${dividerClass}">${App.util.formatNumber(taxAmount)}</div><div class="${itemClass}">${App.util.formatNumber(costSubtotal + taxAmount)}</div>`;
+                            content = this._createStackedContent(
+                                App.util.formatNumber(costSubtotal),
+                                App.util.formatNumber(taxAmount),
+                                App.util.formatNumber(costSubtotal + taxAmount)
+                            );
                         }
                         subtotalRow.appendChild(App.util.createCell(content, CLASSES.TOTAL_VALUE, true));
                     }
@@ -1008,20 +1023,24 @@
                             // 中央のラベルも同様にフォーマットする
                             let middleLabel = '合計';
                             if (format.showTax) {
-                                middleLabel = `<div class="${itemClass} ${dividerClass}">合計</div><div class="${itemClass} ${dividerClass}">消費税</div><div class="${itemClass}">税込</div>`;
+                                middleLabel = this._createStackedContent('合計', '消費税', '税込');
                             }
                             subtotalRow.appendChild(App.util.createCell(middleLabel, CLASSES.TOTAL_LABEL, true));
                         }
                         let content = App.util.formatNumber(sellSubtotal);
                         if (format.showTax) {
-                            content = `<div class="${itemClass} ${dividerClass}">${App.util.formatNumber(sellSubtotal)}</div><div class="${itemClass} ${dividerClass}">${App.util.formatNumber(taxAmount)}</div><div class="${itemClass}">${App.util.formatNumber(sellSubtotal + taxAmount)}</div>`;
+                            content = this._createStackedContent(
+                                App.util.formatNumber(sellSubtotal),
+                                App.util.formatNumber(taxAmount),
+                                App.util.formatNumber(sellSubtotal + taxAmount)
+                            );
                         }
                         subtotalRow.appendChild(App.util.createCell(content, CLASSES.TOTAL_VALUE, true));
                     }
                     return subtotalRow;
                 },
 
-                _renderGrandTotal(fragment, totalAmount) {
+                _renderGrandTotal(fragment, totalAmount, format, totalCost) {
                     const { CLASSES } = App.constants;
                     const grandTotalHeader = document.createElement('h3');
                     grandTotalHeader.textContent = '総合計';
@@ -1030,11 +1049,11 @@
                     const table = document.createElement('table');
                     const tbody = document.createElement('tbody');
                     
-                    // 税抜合計
-                    const totalRow = document.createElement('tr');
-                    totalRow.className = CLASSES.SUBTOTAL_ROW;
-                    totalRow.innerHTML = `<td class="${CLASSES.TOTAL_LABEL}" style="width: 80%;">税抜合計</td><td class="${CLASSES.TOTAL_VALUE}">${App.util.formatNumber(totalAmount)}</td>`;
-                    tbody.appendChild(totalRow);
+                    // 原価合計のみを表示
+                    const costRow = document.createElement('tr');
+                    costRow.className = CLASSES.SUBTOTAL_ROW;
+                    costRow.innerHTML = `<td class="${CLASSES.TOTAL_LABEL} ${CLASSES.GRAND_TOTAL_LABEL_CELL}">税抜合計</td><td class="${CLASSES.TOTAL_VALUE}">${App.util.formatNumber(totalCost)}</td>`;
+                    tbody.appendChild(costRow);
 
                     table.appendChild(tbody);
 
